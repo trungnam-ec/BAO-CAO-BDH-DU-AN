@@ -1,408 +1,622 @@
 /**
- * Google Apps Script - Đồng bộ dữ liệu Hợp Đồng từ ContractPilot
- * Version 2.0 - Fix section routing
+ * Google Apps Script - BÁO CÁO BĐH DỰ ÁN
+ * Version 4.0 - Auto thêm dòng mới nếu dự án chưa có
+ *
+ * CẤU TRÚC SHEET NHAP LIEU (dòng 2 = header, dữ liệu từ dòng 3):
+ *   A = STT
+ *   B = TÊN DỰ ÁN
+ *   C = KH (%)          → luôn = 100% = 1
+ *   D = LK HÔM QUA (%)  → nhập tay hoặc copy từ F hôm qua
+ *   E = HÔM NAY (%)     → CẬP NHẬT TỪ APP = lkHomNay(PDF) - D(sheet)
+ *   F = LK HÔM NAY      → CÔNG THỨC =D+E (không ghi đè)
+ *   G = GT HĐ (tỷ)      → CẬP NHẬT TỪ APP
+ *   H = GT SẢN LƯỢNG    → CẬP NHẬT TỪ APP
+ *   I = GT NGHIỆM THU   → CẬP NHẬT TỪ APP
+ *   J = % SL/HĐ         → CÔNG THỨC =H/G
+ *   K = CẢNH BÁO        → CÔNG THỨC
+ *   L = CÔNG VIỆC NGÀY  → CẬP NHẬT TỪ APP
+ *   M = VƯỚNG MẮC       → CẬP NHẬT TỪ APP
  */
 
+var HEADER_ROW  = 2;     // Dòng tiêu đề cột
+var DATA_START  = 3;     // Dữ liệu bắt đầu từ dòng 3
+var SHEET_NAME  = "NHAP LIEU";
+
+// ─────────────────────────────────────────────────────────────────────────────
 function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents);
-    var sheetName = data.sheetName || "Tổng Hợp";
-    
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getSheetByName(sheetName);
-    
-    if (!sheet) {
-      sheet = ss.insertSheet(sheetName);
-      sheet.getRange(1, 1, 1, 10).setValues([[
-        "STT", "Tên dự án/gói thầu", "Số hợp đồng", "Đơn vị ký HĐ",
-        "Hợp đồng", "Tỷ lệ HĐ", "Đã tạm ứng", "Thu hồi tạm ứng",
-        "Còn lại chưa thu hồi", "Tên file HĐ"
-      ]]);
-    }
-    
-    var soHopDong = data.soHopDong || "N/A";
-    
-    if (sheetName === "Tổng Hợp") {
-      return handleTongHop(sheet, data, soHopDong);
+    var action = data.action || "updateBaoCao";
+
+    if (action === "updateBaoCao") {
+      return handleUpdateBaoCao(data);
     } else {
-      return handleProjectSheet(sheet, data, soHopDong);
+      return respond("error", { message: "Unknown action: " + action });
     }
-    
   } catch (error) {
-    return ContentService
-      .createTextOutput(JSON.stringify({ status: "error", message: error.toString() }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return respond("error", { message: error.toString() });
   }
 }
 
-function handleProjectSheet(sheet, data, soHopDong) {
-  var lastRow = sheet.getLastRow();
-  var existingRow = -1;
-  
-  if (lastRow > 1) {
-    var existingData = sheet.getRange(2, 3, lastRow - 1, 1).getValues();
-    for (var i = 0; i < existingData.length; i++) {
-      if (String(existingData[i][0]).trim() === soHopDong) {
-        existingRow = i + 2;
+// ─────────────────────────────────────────────────────────────────────────────
+function handleUpdateBaoCao(data) {
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEET_NAME);
+
+  if (!sheet) {
+    return respond("error", { message: "Không tìm thấy sheet '" + SHEET_NAME + "'" });
+  }
+
+  var tenDuAn = (data.tenDuAn || "").trim();
+  if (!tenDuAn || tenDuAn === "N/A") {
+    return respond("error", { message: "Thiếu tên dự án" });
+  }
+
+  // 1. Tìm tất cả các dòng của dự án này
+  var rows = findAllProjectRows(sheet, tenDuAn);
+  var targetRow = -1;
+  var isNew = false;
+  var incomingDate = (data.ngayBaoCao || "").trim();
+
+  if (rows.length === 0) {
+    // Dự án MỚI hoàn toàn → thêm dòng
+    targetRow = addNewProjectRow(sheet, tenDuAn, data);
+    rows.push(targetRow);
+    isNew = true;
+  } else {
+    // Đã có dự án → Tìm xem ngày này đã có chưa
+    var foundIndex = -1;
+    for (var i = 0; i < rows.length; i++) {
+      var dateSheet = String(sheet.getRange(rows[i], 11).getDisplayValue()).trim();
+      if (dateSheet === incomingDate && incomingDate !== "") {
+        targetRow = rows[i];
+        foundIndex = i;
         break;
       }
     }
-  }
-  
-  var rowData = [
-    data.stt || "",
-    data.tenDuAn || "",
-    data.soHopDong || "",
-    data.donViKy || "",
-    data.giaTri || "",
-    data.tiLeHopDong || "",
-    data.daTamUng || "",
-    data.thuHoiTamUng || "",
-    data.conLaiChuaThuHoi || "",
-    data.tenFileHD || ""
-  ];
-  
-  if (existingRow > 0) {
-    sheet.getRange(existingRow, 1, 1, 10).setValues([rowData]);
-    return respond("success", { action: "updated", sheet: data.sheetName, hopDong: soHopDong, row: existingRow });
-  } else {
-    sheet.appendRow(rowData);
-    return respond("success", { action: "inserted", sheet: data.sheetName, hopDong: soHopDong });
-  }
-}
 
-/**
- * Xử lý sheet "Tổng Hợp" - Phiên bản 2 (fix section detection)
- * 
- * Logic tìm section: Quét TOÀN BỘ cột A+B, tìm bất kỳ ô nào chứa:
- * - "Chủ đầu tư" hoặc bắt đầu bằng "I" (Mục I)
- * - "Nhà thầu phụ" hoặc bắt đầu bằng "II" (Mục II)
- */
-function handleTongHop(sheet, data, soHopDong) {
-  var loaiHopDong = data.loaiHopDong || "CHU_DAU_TU";
-  var lastRow = Math.max(sheet.getLastRow(), 1);
-  
-  // ═══ TÌM VỊ TRÍ MỤC I VÀ MỤC II ═══
-  var sectionIRow = -1;
-  var sectionIIRow = -1;
-  
-  // Đọc cột A đến F (merge cells có thể nằm ở nhiều cột)
-  var numCols = Math.min(sheet.getLastColumn(), 6);
-  if (numCols < 1) numCols = 2;
-  var allData = sheet.getRange(1, 1, lastRow, numCols).getValues();
-  
-  for (var i = 0; i < allData.length; i++) {
-    // Ghép tất cả cell trong dòng thành 1 chuỗi để tìm
-    var rowText = "";
-    for (var c = 0; c < allData[i].length; c++) {
-      rowText += " " + String(allData[i][c]).trim();
-    }
-    rowText = rowText.toLowerCase().trim();
-    
-    // Tìm Mục I: chứa "chủ đầu tư" hoặc cell A = "i" (không phải "ii")
-    if (rowText.indexOf("chủ đầu tư") >= 0 || rowText.indexOf("chu dau tu") >= 0) {
-      sectionIRow = i + 1;
-    } else {
-      var cellA = String(allData[i][0]).trim().toUpperCase();
-      if (cellA === "I" && sectionIRow === -1) {
-        sectionIRow = i + 1;
+    if (targetRow === -1) {
+      // Ngày mới chưa có → Chèn thêm 1 dòng TRƯỚC dòng kế tiếp (ngay DƯỚI dòng cuối của dự án)
+      var lastR = rows[rows.length - 1];
+      sheet.insertRowAfter(lastR);
+      targetRow = lastR + 1;
+      
+      // Update mảng rows (nếu insert dòng bên dưới tất cả các dòng cũ thì ko làm thay đổi index các dòng cũ)
+      rows.push(targetRow);
+      isNew = true;
+
+      // Cột K: Ngày cập nhật (hoặc Ngày báo cáo)
+      if (incomingDate && incomingDate !== "N/A") {
+        sheet.getRange(targetRow, 11).setValue("'" + incomingDate); // Ép định dạng Text để không bị lật ngày tháng
+      } else {
+        var now = new Date();
+        var dateStr = ('0' + now.getDate()).slice(-2) + '/' + ('0' + (now.getMonth() + 1)).slice(-2) + '/' + now.getFullYear();
+        sheet.getRange(targetRow, 11).setValue("'" + dateStr);
       }
+
+      // Copy thông tin cố định (STT, Tên, KH, GT Hợp đồng)
+      sheet.getRange(targetRow, 1).setValue(sheet.getRange(lastR, 1).getValue());
+      sheet.getRange(targetRow, 2).setValue(sheet.getRange(lastR, 2).getValue());
+      sheet.getRange(targetRow, 3).setValue(sheet.getRange(lastR, 3).getValue());
+      sheet.getRange(targetRow, 3).setNumberFormat("0%");
+      sheet.getRange(targetRow, 7).setValue(sheet.getRange(lastR, 7).getValue());
+      sheet.getRange(targetRow, 7).setNumberFormat("#,##0.000");
+
+      // Set công thức
+      sheet.getRange(targetRow, 6).setFormula("=D" + targetRow + "+E" + targetRow);
+      sheet.getRange(targetRow, 6).setNumberFormat("0.00%");
+      sheet.getRange(targetRow, 10).setFormula("=IFERROR(H" + targetRow + "/G" + targetRow + ")");
+      sheet.getRange(targetRow, 10).setNumberFormat("0.00%");
     }
-    
-    // Tìm Mục II: chứa "nhà thầu phụ" hoặc cell A = "ii"
-    if (rowText.indexOf("nhà thầu phụ") >= 0 || rowText.indexOf("nha thau phu") >= 0) {
-      sectionIIRow = i + 1;
-    } else {
-      var cellA2 = String(allData[i][0]).trim().toUpperCase();
-      if (cellA2 === "II" && sectionIIRow === -1) {
-        sectionIIRow = i + 1;
-      }
-    }
   }
-  
-  // Log kết quả tìm kiếm
-  Logger.log("Section I row: " + sectionIRow + ", Section II row: " + sectionIIRow);
-  Logger.log("loaiHopDong: " + loaiHopDong + ", soHopDong: " + soHopDong);
-  
-  // Nếu không tìm thấy, tạo mới
-  if (sectionIRow === -1) {
-    sectionIRow = lastRow + 2;
-    sheet.getRange(sectionIRow, 1).setValue("I");
-    sheet.getRange(sectionIRow, 2).setValue("Chủ đầu tư (A-B)");
-    lastRow = sectionIRow;
-  }
-  if (sectionIIRow === -1) {
-    sectionIIRow = lastRow + 2;
-    sheet.getRange(sectionIIRow, 1).setValue("II");
-    sheet.getRange(sectionIIRow, 2).setValue("Nhà thầu phụ (B-B')");
-    lastRow = sectionIIRow;
-  }
-  
-  // ═══ XÁC ĐỊNH VÙNG CHÈN ═══
-  var rowData = [
-    "", // STT
-    data.tenDuAn || "",
-    data.soHopDong || "",
-    data.donViKy || "",
-    data.giaTri || "",
-    data.tiLeHopDong || "",
-    data.daTamUng || "",
-    data.thuHoiTamUng || "",
-    data.conLaiChuaThuHoi || "",
-    data.tenFileHD || ""
-  ];
-  
-  var searchStartRow, searchEndRow;
-  var sectionLabel;
-  
-  if (loaiHopDong === "NHA_THAU_PHU") {
-    searchStartRow = sectionIIRow + 1;
-    searchEndRow = sheet.getLastRow();
-    sectionLabel = "II - Nhà thầu phụ";
-  } else {
-    // CHU_DAU_TU (mặc định)
-    searchStartRow = sectionIRow + 1;
-    searchEndRow = sectionIIRow - 1;
-    sectionLabel = "I - Chủ đầu tư";
-  }
-  
-  // ═══ KIỂM TRA TRÙNG SỐ HĐ ═══
-  var existingRow = -1;
-  if (searchEndRow >= searchStartRow && searchStartRow > 0) {
-    var numRows = searchEndRow - searchStartRow + 1;
-    if (numRows > 0) {
-      var searchRange = sheet.getRange(searchStartRow, 3, numRows, 1).getValues();
-      for (var j = 0; j < searchRange.length; j++) {
-        if (String(searchRange[j][0]).trim() === soHopDong) {
-          existingRow = searchStartRow + j;
-          break;
+
+  // Cập nhật dữ liệu vào targetRow
+  var result = updateRowData(sheet, targetRow, data, isNew);
+
+  // CLEANUP: Lưu tối đa 2 ngày gần nhất
+  if (rows.length > 2) {
+    var items = [];
+    for (var k = 0; k < rows.length; k++) {
+      var dStr = String(sheet.getRange(rows[k], 11).getDisplayValue()).trim();
+      var t = 0;
+      if (dStr) {
+        var parts = dStr.split("/");
+        if (parts.length === 3) {
+          t = new Date(Number(parts[2]), Number(parts[1])-1, Number(parts[0])).getTime();
+        } else {
+          t = new Date(dStr).getTime();
         }
       }
+      if (isNaN(t)) t = 0;
+      items.push({ r: rows[k], t: t });
+    }
+    
+    // Sắp xếp ngày giảm dần (mới nhất lên đầu)
+    items.sort(function(a, b) { return b.t - a.t; });
+    
+    var toDelete = [];
+    for (var m = 2; m < items.length; m++) {
+      toDelete.push(items[m].r);
+    }
+    // Sắp xếp số dòng giảm dần để khi xóa thì index dòng trên không bị ảnh hưởng
+    toDelete.sort(function(a, b) { return b - a; });
+    
+    for (var m = 0; m < toDelete.length; m++) {
+      sheet.deleteRow(toDelete[m]);
     }
   }
-  
-  Logger.log("existingRow: " + existingRow + ", searchStart: " + searchStartRow + ", searchEnd: " + searchEndRow);
-  
-  // ═══ GHI DỮ LIỆU ═══
-  var action = "";
-  var targetRow = -1;
-  
-  if (existingRow > 0) {
-    // Update dòng cũ
-    sheet.getRange(existingRow, 1, 1, 10).setValues([rowData]);
-    action = "updated";
-    targetRow = existingRow;
-  } else {
-    // Tìm DÒNG TRỐNG ĐẦU TIÊN trong vùng section
-    var emptyRow = -1;
-    if (searchEndRow >= searchStartRow && searchStartRow > 0) {
-      var numRows = searchEndRow - searchStartRow + 1;
-      if (numRows > 0) {
-        var checkRange = sheet.getRange(searchStartRow, 3, numRows, 1).getValues();
-        for (var k = 0; k < checkRange.length; k++) {
-          if (String(checkRange[k][0]).trim() === "") {
-            emptyRow = searchStartRow + k;
+
+  // Tự động cập nhật công thức cho dòng TỔNG BÌNH QUÂN sau khi thêm/sửa/xoá dòng
+  updateSummaryRow(sheet);
+
+  return respond("success", {
+    action: isNew ? "inserted" : "updated",
+    duAn: tenDuAn,
+    row: targetRow,
+    ngayBaoCao: data.ngayBaoCao || "N/A",
+    updated: result
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Tìm tất cả các dòng thuộc dự án này (trả về mảng index dòng)
+ */
+function findAllProjectRows(sheet, tenDuAn) {
+  var rows = [];
+  var lastRow = sheet.getLastRow();
+  if (lastRow < DATA_START) return rows;
+
+  var colB = sheet.getRange(DATA_START, 2, lastRow - DATA_START + 1, 1).getValues();
+
+  // Chuẩn hoá: uppercase, bỏ dấu khoảng trắng thừa
+  var tenSearch = tenDuAn.toUpperCase().replace(/\s+/g, " ").trim();
+  var tenNoDiacritics = removeDiacritics(tenSearch);
+
+  var bestScore = 0;
+  var bestMatchStr = "";
+
+  // 1. Quét lần đầu để tìm TÊN KHỚP NHẤT
+  for (var i = 0; i < colB.length; i++) {
+    var cellVal = String(colB[i][0]).trim().toUpperCase();
+    if (cellVal === "" || cellVal === "TÊN DỰ ÁN" || cellVal === "TEN DU AN") continue;
+    if (cellVal === "TỔNG" || cellVal.indexOf("TONG") >= 0 ||
+        cellVal.indexOf("BINH QUAN") >= 0 || cellVal.indexOf("BÌNH QUÂN") >= 0) continue;
+
+    var cellNoDiacritics = removeDiacritics(cellVal);
+
+    var score = 0;
+    if (cellVal === tenSearch || cellNoDiacritics === tenNoDiacritics) {
+      score = 100;
+    } else if (cellNoDiacritics.indexOf(tenNoDiacritics) >= 0 || tenNoDiacritics.indexOf(cellNoDiacritics) >= 0) {
+      score = 85;
+    } else {
+      var wordsSearch = tenNoDiacritics.split(" ").filter(function(w) { return w.length > 2; });
+      var wordsCell   = cellNoDiacritics.split(" ").filter(function(w) { return w.length > 2; });
+      var matched = 0;
+      for (var s = 0; s < wordsSearch.length; s++) {
+        for (var c = 0; c < wordsCell.length; c++) {
+          if (wordsCell[c].indexOf(wordsSearch[s]) >= 0 || wordsSearch[s].indexOf(wordsCell[c]) >= 0) {
+            matched++;
             break;
           }
         }
       }
+      if (wordsSearch.length > 0) {
+        score = Math.round((matched / Math.max(wordsSearch.length, wordsCell.length)) * 70);
+      }
     }
-    
-    if (emptyRow > 0) {
-      // Ghi vào dòng trống có sẵn (không insert dòng mới)
-      sheet.getRange(emptyRow, 1, 1, 10).setValues([rowData]);
-      action = "inserted";
-      targetRow = emptyRow;
-    } else if (loaiHopDong === "NHA_THAU_PHU") {
-      // Hết chỗ trống → thêm cuối sheet
-      var insertAt = sheet.getLastRow() + 1;
-      sheet.getRange(insertAt, 1, 1, 10).setValues([rowData]);
-      action = "inserted";
-      targetRow = insertAt;
-    } else {
-      // CHU_DAU_TU hết chỗ trống → chèn trước mục II
-      var currentIIRow = findSectionRow(sheet, sheet.getLastRow(), "II");
-      if (currentIIRow === -1) currentIIRow = sectionIIRow;
-      sheet.insertRowBefore(currentIIRow);
-      sheet.getRange(currentIIRow, 1, 1, 10).setValues([rowData]);
-      action = "inserted";
-      targetRow = currentIIRow;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatchStr = cellVal;
     }
   }
-  
-  // Đánh lại STT
-  reNumberSTT(sheet);
-  
-  return respond("success", { 
-    action: action, 
-    sheet: "Tổng Hợp", 
-    section: sectionLabel,
-    loaiHopDong: loaiHopDong,
-    hopDong: soHopDong, 
-    row: targetRow,
-    sectionIRow: sectionIRow,
-    sectionIIRow: sectionIIRow
-  });
+
+  // 2. Nếu điểm >= 55, lấy TẤT CẢ các dòng ghi exaclty cái tên bestMatch đó
+  if (bestScore >= 55) {
+    for (var i = 0; i < colB.length; i++) {
+      var cellVal = String(colB[i][0]).trim().toUpperCase();
+      if (cellVal === bestMatchStr) {
+        rows.push(i + DATA_START);
+      }
+    }
+  }
+
+  return rows;
 }
 
 /**
- * Tìm dòng chứa section header ("I" hoặc "II") trong cột A
+ * Bỏ dấu tiếng Việt để so sánh tên không phân biệt dấu
  */
-function findSectionRow(sheet, lastRow, sectionId) {
-  if (lastRow < 1) return -1;
-  var colA = sheet.getRange(1, 1, lastRow, 1).getValues();
-  for (var i = 0; i < colA.length; i++) {
-    if (String(colA[i][0]).trim().toUpperCase() === sectionId) {
-      return i + 1;
-    }
-  }
-  return -1;
+function removeDiacritics(str) {
+  var viMap = 'ÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚÝăắặẳẵằấầẩẫậếềểễệốồổỗộớờởỡợơứừửữựưđỉịỳỵỷỹọỏảẹẻẽủụ' +
+              'ÁÀÁÂÃÉÈÊÍÌÓÒÔÕÚÙÝĂẮẶẲẴẰẤẦẨẪẬẾỀỂỄỆỐỒỔỖỘỚỜỞỠỢƠỨỪỬỮỰƯĐỈỊỲỴỶỸỌỎẢẸẺẼỦỤ';
+  var enMap = 'AAAAEEEIIOOOOUUYaaaaaaaaaaaaeeeeeooooooooouuuuuudioyyyyooaeeeuu' +
+              'AAAAEEEIIOOOOUUYaaaaaaaaaaaaeeeeeooooooooouuuuuudioyyyyooaeeeuu';
+
+  // Đơn giản hóa: dùng replace chain thay vì map object
+  var result = str
+    // Uppercase có dấu
+    .replace(/[ÀÁÂÃ]/g, 'A').replace(/[ĂẮẶẲẴẰẤẦẨẪẬ]/g, 'A')
+    .replace(/[ÈÉÊẾỀỂỄỆ]/g, 'E')
+    .replace(/[ÌÍỈỊ]/g, 'I')
+    .replace(/[ÒÓÔÕỐỒỔỖỘỚỜỞỠỢ]/g, 'O').replace(/[Ơ]/g, 'O')
+    .replace(/[ÙÚỨỪỬỮỰ]/g, 'U').replace(/[Ư]/g, 'U')
+    .replace(/[Ý]/g, 'Y')
+    .replace(/Đ/g, 'D')
+    // Lowercase có dấu
+    .replace(/[àáâã]/g, 'A').replace(/[ăắặẳẵằấầẩẫậ]/g, 'A')
+    .replace(/[èéêếềểễệ]/g, 'E')
+    .replace(/[ìíỉị]/g, 'I')
+    .replace(/[òóôõốồổỗộớờởỡợ]/g, 'O').replace(/[ơ]/g, 'O')
+    .replace(/[ùúứừửữự]/g, 'U').replace(/[ư]/g, 'U')
+    .replace(/[ý]/g, 'Y')
+    .replace(/đ/g, 'D')
+    // Các ký tự còn lại
+    .replace(/[ỌỎỏọ]/g, 'O').replace(/[ẢảẠạ]/g, 'A')
+    .replace(/[ẸẻẼẹẽẻ]/g, 'E').replace(/[ỦủỤụ]/g, 'U')
+    .replace(/[ỲỴỶỹỳỵỷ]/g, 'Y');
+
+  return result;
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
 /**
- * Đánh lại STT cho sheet Tổng Hợp
+ * Thêm dòng mới cho dự án mới:
+ * - Ưu tiên điền vào dòng trống sẵn có (B = rỗng) từ dòng 3 trở xuống
+ * - Nếu không còn dòng trống → chèn dòng mới trước TỔNG/BÌNH QUÂN
  */
-function reNumberSTT(sheet) {
+function addNewProjectRow(sheet, tenDuAn, data) {
   var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return;
-  
-  var colA = sheet.getRange(1, 1, lastRow, 1).getValues();
-  var colC = sheet.getRange(1, 3, lastRow, 1).getValues();
-  
-  var sttCounter = 0;
-  var inSection = false;
-  
-  for (var i = 0; i < colA.length; i++) {
-    var cellA = String(colA[i][0]).trim().toUpperCase();
-    
-    if (cellA === "I" || cellA === "II") {
-      sttCounter = 0;
-      inSection = true;
-      continue;
-    }
-    
-    if (inSection && String(colC[i][0]).trim() !== "" && String(colC[i][0]).trim() !== "N/A") {
-      sttCounter++;
-      sheet.getRange(i + 1, 1).setValue(sttCounter);
+
+  // ── Bước 1: Tìm dòng trống đầu tiên trong cột B (từ DATA_START) ──
+  var targetRow = -1;
+  for (var r = DATA_START; r <= lastRow; r++) {
+    var bVal = String(sheet.getRange(r, 2).getValue()).trim().toUpperCase();
+
+    // Bỏ qua dòng TỔNG / BÌNH QUÂN
+    if (bVal.indexOf("TONG") >= 0 || bVal.indexOf("TỔNG") >= 0 ||
+        bVal.indexOf("BINH QUAN") >= 0 || bVal.indexOf("BÌNH QUÂN") >= 0) continue;
+
+    // Dòng trống → dùng dòng này
+    if (bVal === "") {
+      targetRow = r;
+      break;
     }
   }
+
+  // ── Bước 2: Nếu không còn dòng trống → insert trước TỔNG ──
+  if (targetRow === -1) {
+    var insertRow = lastRow + 1;
+    for (var r2 = DATA_START; r2 <= lastRow; r2++) {
+      var v = String(sheet.getRange(r2, 2).getValue()).toUpperCase();
+      if (v.indexOf("TONG") >= 0 || v.indexOf("TỔNG") >= 0 || v.indexOf("BINH QUAN") >= 0) {
+        insertRow = r2;
+        break;
+      }
+    }
+    sheet.insertRowBefore(insertRow);
+    targetRow = insertRow;
+  }
+
+  // ── Bước 3: Ghi thông tin cố định cho dự án mới ──
+  var row = targetRow;
+
+  // A = STT (đếm dự án đến dòng TRƯỚC, rồi +1)
+  var stt = countProjects(sheet, row - 1) + 1;
+  sheet.getRange(row, 1).setValue(stt);
+
+  // B = Tên dự án
+  sheet.getRange(row, 2).setValue(tenDuAn);
+
+  // C = KH = 100%
+  sheet.getRange(row, 3).setValue(1);
+  sheet.getRange(row, 3).setNumberFormat("0%");
+
+  // D = LK HÔM QUA = 0 (dự án mới chưa có lịch sử)
+  sheet.getRange(row, 4).setValue(0);
+  sheet.getRange(row, 4).setNumberFormat("0.00%");
+
+  // E = HÔM NAY (số) → sẽ được updateRowData viết sau
+  sheet.getRange(row, 5).setNumberFormat("0.00%");
+
+  // F = LK HÔM NAY = D+E (công thức, không ghi đè)
+  sheet.getRange(row, 6).setFormula("=D" + row + "+E" + row);
+  sheet.getRange(row, 6).setNumberFormat("0.00%");
+
+  // J = % SL/HĐ (Sử dụng hàm không chứa dấu phẩy để tránh hoàn toàn lỗi Locale)
+  sheet.getRange(row, 10).setFormula("=IFERROR(H" + row + "/G" + row + ")");
+  sheet.getRange(row, 10).setNumberFormat("0.00%");
+
+  Logger.log("✨ Thêm dự án mới '" + tenDuAn + "' tại dòng " + row);
+  return row;
+}
+
+/**
+ * Đếm số dự án có tên (để tính STT)
+ */
+function countProjects(sheet, untilRow) {
+  var count = 0;
+  var lastRow = sheet.getLastRow();
+  for (var r = DATA_START; r <= Math.min(untilRow, lastRow); r++) {
+    var bVal = String(sheet.getRange(r, 2).getValue()).trim();
+    if (bVal !== "" && bVal.toUpperCase().indexOf("TONG") < 0 && bVal.toUpperCase().indexOf("BINH QUAN") < 0) {
+      count++;
+    }
+  }
+  return count;
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Cập nhật dữ liệu vào dòng đã có
+ * isNew = true khi vừa thêm dòng mới (D=0, cần tính E khác)
+ */
+function updateRowData(sheet, row, data, isNew) {
+  var updated = [];
+
+  // ── Cột D & E: AUTO-ROLL lũy kế ──────────────────────────────────────────
+  //
+  //  App gửi kèm lkHomQuaOverride khi upload batch 2 ngày:
+  //    lkHomQuaOverride = lkHomNay của ngày N-1 → làm D trực tiếp
+  //
+  //  Nếu KHÔNG có override → tự đọc F (auto-roll như bình thường)
+  //
+  var lkHomNayStr = data.lkHomNay || "0%";
+  var lkHomNayNum = parsePercent(lkHomNayStr);
+
+  if (lkHomNayNum !== null) {
+    var dNew = 0;
+
+    if (data.lkHomQuaOverride) {
+      // ── Override từ app (batch upload 2 ngày) ──
+      var overrideNum = parsePercent(String(data.lkHomQuaOverride));
+      dNew = (overrideNum !== null) ? overrideNum : 0;
+      sheet.getRange(row, 4).setValue(dNew);
+      sheet.getRange(row, 4).setNumberFormat("0.00%");
+      updated.push("D←override=" + (dNew * 100).toFixed(2) + "%");
+
+    } else if (isNew) {
+      // Dự án MỚI: D = 0
+      dNew = 0;
+
+    } else {
+      // Dự án ĐÃ CÓ: auto-roll D ← F(ngày trước)
+      var fCell = sheet.getRange(row, 6).getValue();
+      var fNum  = (typeof fCell === "number" && !isNaN(fCell)) ? fCell : 0;
+
+      if (fNum > 0) {
+        dNew = fNum;
+        sheet.getRange(row, 4).setValue(dNew);
+        sheet.getRange(row, 4).setNumberFormat("0.00%");
+        updated.push("D←F=" + (dNew * 100).toFixed(2) + "% (auto-roll)");
+      } else {
+        var dCell = sheet.getRange(row, 4).getValue();
+        dNew = (typeof dCell === "number" && !isNaN(dCell)) ? dCell : 0;
+      }
+    }
+
+    // E = lkHomNay(PDF) - D(hôm qua)
+    var homNayNum = lkHomNayNum - dNew;
+    // Bỏ tự động clamp 0 để test data hiển thị chính xác
+    // if (homNayNum < 0) homNayNum = 0;
+
+    sheet.getRange(row, 5).setValue(homNayNum);
+    sheet.getRange(row, 5).setNumberFormat("0.00%");
+    updated.push("E=" + (homNayNum * 100).toFixed(2) + "%  [" + (lkHomNayNum*100).toFixed(2) + "% - " + (dNew*100).toFixed(2) + "%]");
+
+  } else if (data.homNayPercent && data.homNayPercent !== "N/A") {
+    var pct = parsePercent(data.homNayPercent);
+    if (pct !== null) {
+      sheet.getRange(row, 5).setValue(pct);
+      sheet.getRange(row, 5).setNumberFormat("0.00%");
+      updated.push("E=" + data.homNayPercent + " (fallback)");
+    }
+  }
+
+
+  // ── Cột G: GT HĐ (tỷ) - CHỈ ghi nếu ô đang TRỐNG (không bao giờ overwrite) ──
+  if (data.gtHopDong && data.gtHopDong !== "N/A") {
+    var currentG = sheet.getRange(row, 7).getValue();
+    var isEmpty  = (currentG === "" || currentG === null || currentG === 0 || !currentG);
+    if (isEmpty) {
+      var gtHD = parseNumber(data.gtHopDong);
+      if (gtHD !== null && gtHD > 0) {
+        sheet.getRange(row, 7).setValue(gtHD);
+        sheet.getRange(row, 7).setNumberFormat("0.000");
+        updated.push("G=" + gtHD + " (mới)");
+      }
+    } else {
+      updated.push("G=giữ nguyên " + currentG);
+    }
+  }
+
+  // ── Cột H: GT Sản Lượng (tỷ) ──
+  if (data.gtSanLuong && data.gtSanLuong !== "N/A") {
+    var gtSL = parseNumber(data.gtSanLuong);
+    if (gtSL !== null) {
+      sheet.getRange(row, 8).setValue(gtSL);
+      sheet.getRange(row, 8).setNumberFormat("0.000");
+      updated.push("H=" + gtSL);
+    }
+  }
+
+  // ── Cột I: GT Nghiệm Thu (tỷ) ──
+  if (data.gtNghiemThu && data.gtNghiemThu !== "N/A") {
+    var gtNT = parseNumber(data.gtNghiemThu);
+    if (gtNT !== null) {
+      sheet.getRange(row, 9).setValue(gtNT);
+      sheet.getRange(row, 9).setNumberFormat("0.000");
+      updated.push("I=" + gtNT);
+    }
+  }
+
+  // ── Cột L: Công việc trong ngày ──
+  if (data.congViecTrongNgay && data.congViecTrongNgay !== "N/A") {
+    sheet.getRange(row, 12).setValue(data.congViecTrongNgay);
+    sheet.getRange(row, 12).setWrap(true);
+    updated.push("L=cong viec ngay");
+  }
+
+  // ── Cột M: Vướng mắc ──
+  if (data.vuongMac && data.vuongMac !== "N/A" && data.vuongMac !== "Không có") {
+    sheet.getRange(row, 13).setValue(data.vuongMac);
+    sheet.getRange(row, 13).setWrap(true);
+    updated.push("M=vuong mac");
+  }
+
+  // ── Cột K: NGÀY BÁO CÁO (user đổi tên từ "Cảnh Báo") ──
+  if (data.ngayBaoCao && data.ngayBaoCao !== "N/A") {
+    sheet.getRange(row, 11).setValue("'" + data.ngayBaoCao); // Ép định dạng Text
+    updated.push("K=" + data.ngayBaoCao);
+  }
+
+  return updated;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PARSE HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * "28.61%" → 0.2861 | "0.5%" → 0.005 | "28" → 0.28
+ */
+function parsePercent(str) {
+  if (!str || str === "N/A") return null;
+  var s = String(str).trim().replace(",", ".");
+  var isPercent = s.indexOf("%") >= 0;
+  s = s.replace(/%/g, "").trim();
+  var num = parseFloat(s);
+  if (isNaN(num)) return null;
+  if (isPercent || num > 1) return num / 100;
+  return num;
+}
+
+/**
+ * "29.551 tỷ" → 29.551 | "29,551" → 29.551
+ */
+function parseNumber(str) {
+  if (!str || str === "N/A") return null;
+  var s = String(str).trim()
+    .replace(/tỷ|đồng|vnd|vnđ|billion/gi, "")
+    .replace(/\s+/g, "")
+    .trim();
+  if (/^\d{1,3}(\.\d{3})+,\d+$/.test(s)) {
+    s = s.replace(/\./g, "").replace(",", ".");
+  } else {
+    s = s.replace(/,/g, ".");
+  }
+  var num = parseFloat(s);
+  return isNaN(num) ? null : num;
 }
 
 function respond(status, extra) {
-  var result = { status: status };
-  for (var key in extra) {
-    result[key] = extra[key];
-  }
+  var result = { status: status, timestamp: new Date().toISOString() };
+  for (var key in extra) result[key] = extra[key];
   return ContentService
     .createTextOutput(JSON.stringify(result))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-function testDoPost() {
-  var testPayload = {
-    postData: {
-      contents: JSON.stringify({
-        sheetName: "Tổng Hợp",
-        tenDuAn: "Test - Gói thầu Thường Phước",
-        soHopDong: "HD_TEST_001",
-        donViKy: "Ban Quản lý Khu Kinh tế tỉnh Đồng Tháp",
-        giaTri: "95.092.891.627 VND",
-        tiLeHopDong: "87%",
-        daTamUng: "28.528.914.720 VND",
-        thuHoiTamUng: "N/A",
-        conLaiChuaThuHoi: "N/A",
-        loaiHopDong: "CHU_DAU_TU",
-        tenFileHD: "test.pdf"
-      })
-    }
+// ─────────────────────────────────────────────────────────────────────────────
+// HÀM TEST
+// ─────────────────────────────────────────────────────────────────────────────
+
+function testUpdateExisting() {
+  var testData = {
+    action: "updateBaoCao",
+    tenDuAn: "XLNT TAY NINH",
+    ngayBaoCao: "07/04/2026",
+    lkHomNay: "28.80%",
+    homNayPercent: "0.19%",
+    gtHopDong: "63.199",
+    gtSanLuong: "18.200",
+    gtNghiemThu: "18.008",
+    congViecTrongNgay: "Đổ bê tông hố ga, Thảm BTN đường Hoàng Lê Kha lớp 2\nCung cấp cọc thử 0/292",
+    vuongMac: "Không có",
+    tenFile: "bao_cao_XLNT_07042026.pdf"
   };
-  
-  var result = doPost(testPayload);
-  Logger.log(result.getContent());
+  _runTest(testData);
 }
 
-// ═══════════════════════════════════════════════════════════════
-// AUTO-SYNC: Khi sửa cột K-U trên sheet dự án → cập nhật Tổng Hợp
-// ═══════════════════════════════════════════════════════════════
+function testInsertNew() {
+  var testData = {
+    action: "updateBaoCao",
+    tenDuAn: "DU AN TEST MOI",
+    ngayBaoCao: "07/04/2026",
+    lkHomNay: "5.25%",
+    homNayPercent: "0.50%",
+    gtHopDong: "120.000",
+    gtSanLuong: "6.300",
+    gtNghiemThu: "N/A",
+    congViecTrongNgay: "Thi cong mong, Lap dat ong nuoc",
+    vuongMac: "Thời tiết xấu làm chậm tiến độ",
+    tenFile: "bao_cao_TEST_07042026.pdf"
+  };
+  _runTest(testData);
+}
 
-/**
- * Trigger tự động khi chỉnh sửa ô trên bất kỳ sheet nào (trừ Tổng Hợp)
- * 
- * Cách hoạt động:
- * 1. Phát hiện sửa ô trên sheet dự án (VD: "Xử lý nước thải tây ninh")
- * 2. Lấy Số HĐ (cột C) của dòng vừa sửa
- * 3. Tìm dòng có cùng Số HĐ trên sheet "Tổng Hợp"
- * 4. Copy toàn bộ giá trị cột K-U từ sheet dự án → Tổng Hợp
- * 
- * HƯỚNG DẪN CÀI ĐẶT:
- * 1. Trong Apps Script Editor → menu "Triggers" (biểu tượng đồng hồ bên trái)
- * 2. "Add Trigger" → chọn function: onEditSync
- * 3. Event source: From spreadsheet
- * 4. Event type: On edit
- * 5. Save
- */
-function onEditSync(e) {
-  try {
-    var sheet = e.source.getActiveSheet();
-    var sheetName = sheet.getName();
-    
-    // Bỏ qua nếu đang sửa trên sheet Tổng Hợp
-    if (sheetName === "Tổng Hợp") return;
-    
-    var range = e.range;
-    var row = range.getRow();
-    var col = range.getColumn();
-    
-    // Bỏ qua nếu sửa dòng header (dòng 1-2)
-    if (row <= 2) return;
-    
-    // Lấy Số HĐ từ cột C (cột 3) của dòng vừa sửa
-    var soHopDong = String(sheet.getRange(row, 3).getValue()).trim();
-    if (!soHopDong || soHopDong === "" || soHopDong === "N/A") return;
-    
-    // Mở sheet Tổng Hợp
-    var ss = e.source;
-    var tongHopSheet = ss.getSheetByName("Tổng Hợp");
-    if (!tongHopSheet) return;
-    
-    // Tìm dòng có cùng Số HĐ trong Tổng Hợp
-    var tongHopLastRow = tongHopSheet.getLastRow();
-    if (tongHopLastRow < 2) return;
-    
-    var tongHopCol3 = tongHopSheet.getRange(1, 3, tongHopLastRow, 1).getValues();
-    var matchRow = -1;
-    for (var i = 0; i < tongHopCol3.length; i++) {
-      if (String(tongHopCol3[i][0]).trim() === soHopDong) {
-        matchRow = i + 1;
-        break;
-      }
+function _runTest(testData) {
+  var mockEvent = { postData: { contents: JSON.stringify(testData) } };
+  var result = doPost(mockEvent);
+  Logger.log("=== KẾT QUẢ TEST ===");
+  Logger.log(result.getContent());
+  try { Browser.msgBox(result.getContent()); } catch(e) {}
+}
+
+function listDuAn() {
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) { Logger.log("Không tìm thấy sheet " + SHEET_NAME); return; }
+
+  var lastRow = sheet.getLastRow();
+  var data    = sheet.getRange(DATA_START, 1, lastRow - DATA_START + 1, 2).getValues();
+
+  Logger.log("=== DANH SÁCH DỰ ÁN ===");
+  for (var i = 0; i < data.length; i++) {
+    var valB = String(data[i][1]).trim();
+    if (valB !== "" && valB.length > 2) {
+      Logger.log("Dòng " + (i + DATA_START) + ": [" + data[i][0] + "] " + valB);
     }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Tự động chèn công thức AVERAGE / SUM vào dòng TỔNG BÌNH QUÂN
+ */
+function updateSummaryRow(sheet) {
+  var lastRow = sheet.getLastRow();
+  var summaryRowIndex = -1;
+  
+  // Tìm dòng có chữ TỔNG hoặc BÌNH QUÂN ở cột A hoặc B (do có thể bị Merge cell)
+  for (var r = lastRow; r >= DATA_START; r--) {
+    var aVal = String(sheet.getRange(r, 1).getValue()).trim().toUpperCase();
+    var bVal = String(sheet.getRange(r, 2).getValue()).trim().toUpperCase();
+    var combinedVal = aVal + " " + bVal;
     
-    if (matchRow === -1) return; // Không tìm thấy Số HĐ trong Tổng Hợp
+    if (combinedVal.indexOf("TONG") >= 0 || combinedVal.indexOf("TỔNG") >= 0 ||
+        combinedVal.indexOf("BINH QUAN") >= 0 || combinedVal.indexOf("BÌNH QUÂN") >= 0) {
+      summaryRowIndex = r;
+      break;
+    }
+  }
+
+  // Nếu tìm thấy dòng tổng và có dữ liệu ở trên nó
+  if (summaryRowIndex > DATA_START) {
+    var rangeStart = DATA_START;
+    var rangeEnd = summaryRowIndex - 1;
     
-    // Copy cột K-U (cột 11-21) từ sheet dự án → Tổng Hợp
-    var startCol = 11; // Cột K
-    var endCol = 21;   // Cột U
-    var numCols = endCol - startCol + 1;
-    
-    // Kiểm tra sheet dự án có đủ cột không
-    var srcLastCol = sheet.getLastColumn();
-    if (srcLastCol < startCol) return;
-    
-    var actualEndCol = Math.min(endCol, srcLastCol);
-    var actualNumCols = actualEndCol - startCol + 1;
-    
-    // Lấy giá trị từ sheet dự án
-    var srcValues = sheet.getRange(row, startCol, 1, actualNumCols).getValues();
-    
-    // Ghi vào Tổng Hợp
-    tongHopSheet.getRange(matchRow, startCol, 1, actualNumCols).setValues(srcValues);
-    
-    Logger.log("✅ Auto-sync: sheet \"" + sheetName + "\" row " + row + 
-               " → Tổng Hợp row " + matchRow + " (HĐ: " + soHopDong + 
-               ", cột " + startCol + "-" + actualEndCol + ")");
-    
-  } catch (error) {
-    Logger.log("❌ onEditSync error: " + error.toString());
+    // Cột F (Lũy kế hôm nay %): AVERAGE
+    sheet.getRange(summaryRowIndex, 6).setFormula("=AVERAGE(F" + rangeStart + ":F" + rangeEnd + ")");
+    // Cột G (Giá trị HD): SUM
+    sheet.getRange(summaryRowIndex, 7).setFormula("=SUM(G" + rangeStart + ":G" + rangeEnd + ")");
+    // Cột H (Giá trị Sản lượng): SUM
+    sheet.getRange(summaryRowIndex, 8).setFormula("=SUM(H" + rangeStart + ":H" + rangeEnd + ")");
+    // Cột I (Giá trị Còn lại / Nghiệm thu): SUM
+    sheet.getRange(summaryRowIndex, 9).setFormula("=SUM(I" + rangeStart + ":I" + rangeEnd + ")");
   }
 }

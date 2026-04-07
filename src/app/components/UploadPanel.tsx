@@ -2,234 +2,242 @@
 
 import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, FileText, CheckCircle2, ChevronDown } from "lucide-react";
+import { Upload, FileText, CheckCircle2 } from "lucide-react";
 
 interface UploadPanelProps {
-    onUpload: (files: File[]) => void;
-    status: "IDLE" | "PROCESSING" | "SUCCESS";
-    processingText: string;
-    selectedProject: string;
-    onProjectChange: (project: string) => void;
-    projectOptions: string[];
+  onUpload: (files: File[]) => void;
+  onConfigureRequired?: () => void;
+  status: "IDLE" | "PROCESSING" | "SUCCESS";
+  processingText: string;
 }
 
-export default function UploadPanel({ onUpload, status, processingText, selectedProject, onProjectChange, projectOptions }: UploadPanelProps) {
-    const [isDragging, setIsDragging] = useState(false);
-    const fileInputRef = useRef<HTMLInputElement>(null);
+export default function UploadPanel({ onUpload, onConfigureRequired, status, processingText }: UploadPanelProps) {
+  const [isDragging, setIsDragging] = useState(false);
+  const [showApiWarning, setShowApiWarning] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const handleDragOver = (e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragging(true);
-    };
+  const checkApiKeyAndOpen = () => {
+    const savedSettings = localStorage.getItem("bdh_bao_cao_settings");
+    const settings = savedSettings ? JSON.parse(savedSettings) : {};
+    if (!settings.apiKey) {
+      setShowApiWarning(true);
+      onConfigureRequired?.();
+      return;
+    }
+    setShowApiWarning(false);
+    fileInputRef.current?.click();
+  };
 
-    const handleDragLeave = () => setIsDragging(false);
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
+  const handleDragLeave = () => setIsDragging(false);
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const savedSettings = localStorage.getItem("bdh_bao_cao_settings");
+    const settings = savedSettings ? JSON.parse(savedSettings) : {};
+    if (!settings.apiKey) { setShowApiWarning(true); onConfigureRequired?.(); return; }
+    const files = Array.from(e.dataTransfer.files).filter((f) => f.type === "application/pdf");
+    if (files.length > 0) onUpload(files);
+  };
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []).filter((f) => f.type === "application/pdf");
+    if (files.length > 0) onUpload(files);
+    // Reset input để có thể chọn lại cùng file
+    e.target.value = "";
+  };
 
-    const handleDrop = (e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragging(false);
-        const files = Array.from(e.dataTransfer.files).filter(f => f.type === "application/pdf");
-        if (files.length > 0) onUpload(files);
-    };
-
-    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = Array.from(e.target.files || []).filter(f => f.type === "application/pdf");
-        if (files.length > 0) onUpload(files);
-    };
-
-    return (
+  return (
+    <div
+      className="relative h-full w-full flex flex-col items-center justify-center p-6 overflow-hidden"
+      style={{ background: "#050505" }}
+    >
+      {/* Background glows */}
+      <div className="absolute inset-0 pointer-events-none">
         <div
-            className="relative h-full w-full flex flex-col items-center justify-center p-6 overflow-hidden"
-            style={{ background: '#050505' }}
-        >
-            {/* Background radial glows */}
-            <div className="absolute inset-0 pointer-events-none">
-                <div className="absolute top-1/4 left-1/4 w-72 h-72 rounded-full opacity-[0.04]"
-                    style={{ background: 'radial-gradient(circle, #00f2ff 0%, transparent 70%)', filter: 'blur(40px)' }} />
-                <div className="absolute bottom-1/3 right-1/4 w-48 h-48 rounded-full opacity-[0.03]"
-                    style={{ background: 'radial-gradient(circle, #9b5de5 0%, transparent 70%)', filter: 'blur(30px)' }} />
-            </div>
+          className="absolute top-1/4 left-1/4 w-72 h-72 rounded-full opacity-[0.05]"
+          style={{ background: "radial-gradient(circle, #00f2ff 0%, transparent 70%)", filter: "blur(40px)" }}
+        />
+        <div
+          className="absolute bottom-1/3 right-1/4 w-48 h-48 rounded-full opacity-[0.04]"
+          style={{ background: "radial-gradient(circle, #10b981 0%, transparent 70%)", filter: "blur(30px)" }}
+        />
+      </div>
 
-            {/* Main Glass Card */}
+      {/* Main Card */}
+      <motion.div
+        initial={{ opacity: 0, scale: 0.92 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+        className={`relative z-10 w-full max-w-sm rounded-3xl p-8 flex flex-col items-center transition-all duration-300 ${isDragging ? "scale-[1.02]" : ""}`}
+        style={{
+          background: "rgba(14,14,14,0.85)",
+          backdropFilter: "blur(28px)",
+          border: isDragging ? "1px solid rgba(0,242,255,0.4)" : "1px solid rgba(255,255,255,0.07)",
+          boxShadow: isDragging
+            ? "0 0 0 1px rgba(0,242,255,0.15), 0 0 60px rgba(0,242,255,0.12), 0 24px 60px rgba(0,0,0,0.8)"
+            : "0 0 0 1px rgba(0,242,255,0.03), 0 24px 60px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.05)",
+        }}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        <AnimatePresence mode="wait">
+          {status === "IDLE" && (
             <motion.div
-                initial={{ opacity: 0, scale: 0.92 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-                className={`relative z-10 w-full max-w-sm rounded-3xl p-8 flex flex-col items-center transition-all duration-300 ${isDragging ? 'scale-[1.02]' : ''}`}
-                style={{
-                    background: 'rgba(14,14,14,0.85)',
-                    backdropFilter: 'blur(28px)',
-                    border: isDragging ? '1px solid rgba(0,242,255,0.4)' : '1px solid rgba(255,255,255,0.07)',
-                    boxShadow: isDragging
-                        ? '0 0 0 1px rgba(0,242,255,0.15), 0 0 60px rgba(0,242,255,0.12), 0 24px 60px rgba(0,0,0,0.8)'
-                        : '0 0 0 1px rgba(0,242,255,0.03), 0 24px 60px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.05)',
-                }}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
+              key="idle"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.3 }}
+              className="flex flex-col items-center text-center w-full"
             >
-                <AnimatePresence mode="wait">
-                    {status === "IDLE" && (
-                        <motion.div
-                            key="idle"
-                            initial={{ opacity: 0, y: 12 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -12 }}
-                            transition={{ duration: 0.3 }}
-                            className="flex flex-col items-center text-center w-full"
-                        >
-                            {/* 3D-style icon */}
-                            <div className="relative mb-5">
-                                <div className="w-20 h-20 rounded-2xl flex items-center justify-center animate-float"
-                                    style={{
-                                        background: 'linear-gradient(135deg, rgba(0,242,255,0.15) 0%, rgba(0,242,255,0.04) 100%)',
-                                        border: '1px solid rgba(0,242,255,0.2)',
-                                        boxShadow: '0 0 30px rgba(0,242,255,0.15), 0 8px 24px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1)',
-                                    }}
-                                >
-                                    <Upload className="w-9 h-9" style={{ color: '#00f2ff' }} />
-                                </div>
-                                <div className="absolute inset-0 rounded-2xl opacity-20 animate-pulse-glow" />
-                            </div>
+              {/* Icon */}
+              <div className="relative mb-5">
+                <div
+                  className="w-20 h-20 rounded-2xl flex items-center justify-center"
+                  style={{
+                    background: "linear-gradient(135deg, rgba(0,242,255,0.15) 0%, rgba(0,242,255,0.04) 100%)",
+                    border: "1px solid rgba(0,242,255,0.2)",
+                    boxShadow: "0 0 30px rgba(0,242,255,0.15), 0 8px 24px rgba(0,0,0,0.5)",
+                  }}
+                >
+                  <Upload className="w-9 h-9" style={{ color: "#00f2ff" }} />
+                </div>
+              </div>
 
-                            <h3 className="text-xl font-bold mb-2"
-                                style={{
-                                    background: 'linear-gradient(135deg, #c0c0c0 0%, #ffffff 50%, #c0c0c0 100%)',
-                                    WebkitBackgroundClip: 'text',
-                                    WebkitTextFillColor: 'transparent',
-                                    backgroundClip: 'text',
-                                }}
-                            >
-                                Upload Hợp Đồng PDF
-                            </h3>
-                            <p className="text-white/40 text-sm mb-5 leading-relaxed">
-                                Chọn dự án, rồi kéo thả file PDF<br />hoặc click để chọn file
-                            </p>
+              <h3
+                className="text-xl font-bold mb-1"
+                style={{
+                  background: "linear-gradient(135deg, #c0c0c0 0%, #ffffff 50%, #c0c0c0 100%)",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                  backgroundClip: "text",
+                }}
+              >
+                Báo cáo BĐH Dự án
+              </h3>
+              <p className="text-white/40 text-sm mb-6 leading-relaxed">
+                Upload file PDF báo cáo ngày thi công
+                <br />
+                AI sẽ tự động trích xuất và cập nhật Sheets
+              </p>
 
-                            {/* ── Project Selector Dropdown ── */}
-                            <div className="w-full mb-5 relative">
-                                <label className="block text-[10px] uppercase tracking-widest font-bold mb-2"
-                                    style={{ color: 'rgba(255,255,255,0.3)' }}>
-                                    Chọn dự án
-                                </label>
-                                <div className="relative">
-                                    <select
-                                        id="project-select"
-                                        value={selectedProject}
-                                        onChange={e => onProjectChange(e.target.value)}
-                                        className="w-full appearance-none rounded-xl px-4 py-3 pr-10 text-sm font-semibold text-white outline-none cursor-pointer transition-all focus:ring-1 focus:ring-[rgba(0,242,255,0.4)]"
-                                        style={{
-                                            background: 'rgba(255,255,255,0.06)',
-                                            border: '1px solid rgba(0,242,255,0.25)',
-                                            boxShadow: '0 0 12px rgba(0,242,255,0.06)',
-                                        }}
-                                    >
-                                        {projectOptions.map(opt => (
-                                            <option key={opt} value={opt} style={{ background: '#141414', color: '#fff' }}>
-                                                {opt}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style={{ color: '#00f2ff' }} />
-                                </div>
-                            </div>
+              {/* API Key Warning */}
+              {showApiWarning && (
+                <motion.div
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="w-full mb-3 px-4 py-2.5 rounded-xl text-xs font-semibold text-center"
+                  style={{
+                    background: "rgba(251,146,60,0.12)",
+                    border: "1px solid rgba(251,146,60,0.35)",
+                    color: "#fb923c",
+                  }}
+                >
+                  ⚠️ Vui lòng nhập OpenAI API Key trong Settings trước
+                </motion.div>
+              )}
 
-                            <button
-                                onClick={() => fileInputRef.current?.click()}
-                                className="w-full py-3 rounded-xl font-semibold text-sm transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
-                                style={{
-                                    background: 'linear-gradient(135deg, rgba(0,242,255,0.2) 0%, rgba(0,242,255,0.08) 100%)',
-                                    border: '1px solid rgba(0,242,255,0.35)',
-                                    color: '#00f2ff',
-                                    boxShadow: '0 0 20px rgba(0,242,255,0.1)',
-                                }}
-                            >
-                                Chọn File PDF
-                            </button>
+              <button
+                onClick={checkApiKeyAndOpen}
+                className="w-full py-3 rounded-xl font-semibold text-sm transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+                style={{
+                  background: "linear-gradient(135deg, rgba(0,242,255,0.2) 0%, rgba(0,242,255,0.08) 100%)",
+                  border: "1px solid rgba(0,242,255,0.35)",
+                  color: "#00f2ff",
+                  boxShadow: "0 0 20px rgba(0,242,255,0.1)",
+                }}
+              >
+                Chọn File Báo Cáo PDF
+              </button>
 
-                            <input
-                                type="file"
-                                ref={fileInputRef}
-                                onChange={handleFileSelect}
-                                accept="application/pdf"
-                                multiple
-                                className="hidden"
-                            />
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileSelect}
+                accept="application/pdf"
+                multiple
+                className="hidden"
+              />
 
-                            <p className="mt-5 text-[11px] text-white/20 font-mono tracking-widest uppercase">
-                                PDF · Multi-page supported
-                            </p>
-                        </motion.div>
-                    )}
-
-                    {status === "PROCESSING" && (
-                        <motion.div
-                            key="processing"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="flex flex-col items-center text-center w-full"
-                        >
-                            <div className="relative w-28 h-36 rounded-xl flex items-center justify-center mb-8 overflow-hidden"
-                                style={{
-                                    background: 'rgba(18,18,18,0.8)',
-                                    border: '1px solid rgba(0,242,255,0.2)',
-                                    boxShadow: '0 0 30px rgba(0,242,255,0.1)',
-                                }}
-                            >
-                                <FileText className="w-14 h-14 text-white/10" />
-                                <div className="animate-scan" />
-                            </div>
-
-                            <div className="w-full max-w-[200px] h-1 rounded-full overflow-hidden mb-4"
-                                style={{ background: 'rgba(255,255,255,0.06)' }}
-                            >
-                                <motion.div
-                                    className="h-full rounded-full"
-                                    style={{
-                                        background: 'linear-gradient(90deg, #00f2ff, #9b5de5)',
-                                        boxShadow: '0 0 12px rgba(0,242,255,0.5)',
-                                    }}
-                                    initial={{ width: "0%" }}
-                                    animate={{ width: "100%" }}
-                                    transition={{ duration: 12, ease: "easeInOut" }}
-                                />
-                            </div>
-                            <p className="text-sm animate-pulse font-mono" style={{ color: '#00f2ff' }}>
-                                {processingText}
-                            </p>
-                        </motion.div>
-                    )}
-
-                    {status === "SUCCESS" && (
-                        <motion.div
-                            key="success"
-                            initial={{ opacity: 0, scale: 0.85 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            transition={{ type: "spring", stiffness: 200, damping: 15 }}
-                            className="flex flex-col items-center text-center"
-                        >
-                            <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6"
-                                style={{
-                                    background: 'rgba(16,185,129,0.15)',
-                                    border: '1px solid rgba(16,185,129,0.4)',
-                                    boxShadow: '0 0 30px rgba(16,185,129,0.2)',
-                                }}
-                            >
-                                <CheckCircle2 className="w-10 h-10 text-emerald-400" />
-                            </div>
-                            <h3 className="text-xl font-bold text-white mb-1">Quét hoàn tất</h3>
-                            <p className="text-white/40 text-sm">AI đã trích xuất dữ liệu hợp đồng thành công.</p>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
+              <p className="mt-5 text-[11px] text-white/20 font-mono tracking-widest uppercase">
+                PDF · AI Extract · Google Sheets
+              </p>
             </motion.div>
+          )}
 
-            {/* Footer */}
-            <div className="absolute bottom-6 z-10 text-center">
-                <p className="text-white/15 text-[10px] font-mono tracking-widest uppercase">
-                    Upload PDF · TNEC-HĐ
-                </p>
-            </div>
-        </div>
-    );
+          {status === "PROCESSING" && (
+            <motion.div
+              key="processing"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex flex-col items-center text-center w-full"
+            >
+              <div
+                className="relative w-28 h-36 rounded-xl flex items-center justify-center mb-8 overflow-hidden"
+                style={{
+                  background: "rgba(18,18,18,0.8)",
+                  border: "1px solid rgba(0,242,255,0.2)",
+                  boxShadow: "0 0 30px rgba(0,242,255,0.1)",
+                }}
+              >
+                <FileText className="w-14 h-14 text-white/10" />
+                <div className="animate-scan" />
+              </div>
+
+              <div
+                className="w-full max-w-[200px] h-1 rounded-full overflow-hidden mb-4"
+                style={{ background: "rgba(255,255,255,0.06)" }}
+              >
+                <motion.div
+                  className="h-full rounded-full"
+                  style={{
+                    background: "linear-gradient(90deg, #00f2ff, #10b981)",
+                    boxShadow: "0 0 12px rgba(0,242,255,0.5)",
+                  }}
+                  initial={{ width: "0%" }}
+                  animate={{ width: "100%" }}
+                  transition={{ duration: 15, ease: "easeInOut" }}
+                />
+              </div>
+              <p className="text-sm animate-pulse font-mono" style={{ color: "#00f2ff" }}>
+                {processingText}
+              </p>
+            </motion.div>
+          )}
+
+          {status === "SUCCESS" && (
+            <motion.div
+              key="success"
+              initial={{ opacity: 0, scale: 0.85 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ type: "spring", stiffness: 200, damping: 15 }}
+              className="flex flex-col items-center text-center"
+            >
+              <div
+                className="w-20 h-20 rounded-full flex items-center justify-center mb-6"
+                style={{
+                  background: "rgba(16,185,129,0.15)",
+                  border: "1px solid rgba(16,185,129,0.4)",
+                  boxShadow: "0 0 30px rgba(16,185,129,0.2)",
+                }}
+              >
+                <CheckCircle2 className="w-10 h-10 text-emerald-400" />
+              </div>
+              <h3 className="text-xl font-bold text-white mb-1">Xử lý hoàn tất</h3>
+              <p className="text-white/40 text-sm">AI đã trích xuất và đồng bộ lên Google Sheets.</p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
+
+      {/* Footer */}
+      <div className="absolute bottom-6 z-10 text-center">
+        <p className="text-white/15 text-[10px] font-mono tracking-widest uppercase">
+          BÁO CÁO BĐH · TNEC
+        </p>
+      </div>
+    </div>
+  );
 }

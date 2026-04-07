@@ -1,296 +1,275 @@
 "use client";
 export const dynamic = "force-dynamic";
 
-import { useState, useEffect, useCallback } from "react";
-import { Settings } from "lucide-react";
+import { useState, useCallback } from "react";
+import { Settings, X, AlertCircle, CheckCircle2, Info } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import UploadPanel from "./components/UploadPanel";
 import ResultsPanel from "./components/ResultsPanel";
 import SettingsModal from "./components/SettingsModal";
 
-const DEFAULT_PROJECTS = [
-  "Rạch xuyên tâm",
-  "Hương lộ 11",
-  "Xử lý nước thải tây ninh",
-  "Thường Phước",
-  "Cầu Mã Đà",
-  "Tổng Hợp",
-];
+// URL Apps Script mặc định
+const DEFAULT_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwF7jE5RMCXwAKd5MyfA5srEqxqKxwv6qARrp6fiS5zCBdAIVdym_O6DQiTk_rkb1DQEw/exec";
 
-interface HopDongData {
-  stt: string;
+export interface BaoCaoData {
+  ngayBaoCao: string;
   tenDuAn: string;
-  soHopDong: string;
-  donViKy: string;
-  giaTri: string;
-  tiLeHopDong: string;
-  daTamUng: string;
-  thuHoiTamUng: string;
-  conLaiChuaThuHoi: string;
-  loaiHopDong: string;
-  tenFileHD: string;
+  khPercent: string;      // KH (%) - luon = 100%
+  lkHomQua: string;       // LK HOM QUA (%)
+  homNayPercent: string;  // HOM NAY (%) - delta
+  lkHomNay: string;       // LK HOM NAY (%) - lay thang tu San luong % trong PDF
+  gtHopDong: string;      // Gia tri Hop dong (ty dong) - co dinh
+  gtSanLuong: string;     // San luong (ty dong) - Sep quan tam
+  gtConLai: string;       // Gia tri con lai (ty dong) - Sep quan tam
+  gtNghiemThu: string;
+  congViecTrongNgay: string;
+  vuongMac: string;
+  tenFile: string;
 }
+
+interface Toast {
+  id: number;
+  type: "error" | "warning" | "success" | "info";
+  message: string;
+}
+
+let toastCounter = 0;
 
 export default function Home() {
   const [status, setStatus] = useState<"IDLE" | "PROCESSING" | "SUCCESS">("IDLE");
   const [processingText, setProcessingText] = useState("");
-  const [extractedData, setExtractedData] = useState<HopDongData[]>([]);
+  const [extractedData, setExtractedData] = useState<BaoCaoData[]>([]);
   const [validationScores, setValidationScores] = useState<Record<string, number>[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [fileUrls, setFileUrls] = useState<string[]>([]);
   const [selectedPdfIndex, setSelectedPdfIndex] = useState(0);
   const [syncStatus, setSyncStatus] = useState<"IDLE" | "SYNCING" | "SUCCESS">("IDLE");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [projectOptions, setProjectOptions] = useState<string[]>(DEFAULT_PROJECTS);
-  const [selectedProject, setSelectedProject] = useState("Tổng Hợp");
+  const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const loadProjects = useCallback(() => {
-    const saved = localStorage.getItem("tnec_hd_projects");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setProjectOptions(parsed);
-          if (!parsed.includes(selectedProject)) setSelectedProject(parsed[0]);
-        }
-      } catch (e) { /* ignore */ }
-    }
-  }, [selectedProject]);
+  const showToast = useCallback((message: string, type: Toast["type"] = "error") => {
+    const id = ++toastCounter;
+    setToasts((prev) => [...prev, { id, type, message }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 6000);
+  }, []);
 
-  useEffect(() => { loadProjects(); }, [loadProjects]);
+  const dismissToast = (id: number) => setToasts((prev) => prev.filter((t) => t.id !== id));
 
-  const handleSettingsClose = () => {
-    setIsSettingsOpen(false);
-    loadProjects();
-  };
+  const handleSettingsClose = () => setIsSettingsOpen(false);
 
   const handleUpload = async (files: File[]) => {
-    const savedSettings = localStorage.getItem("contract_ai_settings");
-    if (!savedSettings) {
-      alert("Vui lòng cấu hình API Key trong Settings trước.");
-      setIsSettingsOpen(true);
-      return;
-    }
-    const settings = JSON.parse(savedSettings);
-    if (!settings.apiKey) {
-      alert("Vui lòng nhập OpenAI API Key trong Settings.");
+    const savedSettings = localStorage.getItem("bdh_bao_cao_settings");
+    const settings = savedSettings ? JSON.parse(savedSettings) : {};
+    const apiKey = settings.apiKey || "";
+
+    // API key đã được kiểm tra trước bởi UploadPanel - safeguard thêm
+    if (!apiKey) {
       setIsSettingsOpen(true);
       return;
     }
 
     setStatus("PROCESSING");
-    const newData: HopDongData[] = [...extractedData];
+    const newData: BaoCaoData[] = [...extractedData];
     const newScores: Record<string, number>[] = [...validationScores];
     const newPreviews: string[] = [...previews];
     const newFileUrls: string[] = [...fileUrls];
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      setProcessingText(`Đang xử lý file ${i + 1}/${files.length} (${file.name})...`);
+      setProcessingText(`Đang xử lý file ${i + 1}/${files.length}: ${file.name}...`);
 
       try {
         const fileUrl = URL.createObjectURL(file);
         newFileUrls.push(fileUrl);
         setFileUrls([...newFileUrls]);
 
-        // 1. Convert PDF to images via CDN pdf.js
-        setProcessingText(`Đang xử lý hình ảnh PDF...`);
+        // Render PDF sang ảnh
+        setProcessingText(`Đang render PDF...`);
         const pageImages: string[] = [];
         let previewBase64 = "";
 
         try {
           const pdfjsLib = (window as any).pdfjsLib;
-          if (!pdfjsLib) throw new Error("pdf.js not loaded from CDN");
+          if (!pdfjsLib) throw new Error("pdf.js not loaded");
 
-          pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+          pdfjsLib.GlobalWorkerOptions.workerSrc =
+            "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
           const arrayBuffer = await file.arrayBuffer();
-          const pdf = await pdfjsLib.getDocument({
-            data: arrayBuffer,
-            disableFontFace: true,
-            useSystemFonts: true,
-          }).promise;
+          const pdf = await pdfjsLib.getDocument({ data: arrayBuffer, disableFontFace: true }).promise;
 
-          // Single request: 1000px width, quality adaptive
-          // File PDF gốc KHÔNG gửi → chỉ ảnh → ~2-3MB, dưới Vercel 4.5MB
-          const totalPages = pdf.numPages;
-          const MAX_READ = 40;
-          const MAX_WIDTH = 1000;
-          const pagesToRender: number[] = [];
-          
-          for (let p = 1; p <= Math.min(totalPages, MAX_READ); p++) {
-            pagesToRender.push(p);
-          }
-          if (totalPages > MAX_READ && !pagesToRender.includes(totalPages)) {
-            pagesToRender.push(totalPages);
-          }
-          
-          console.log(`📄 PDF: ${totalPages} trang, render ${pagesToRender.length} trang`);
+          const totalPdfPages = pdf.numPages;
+          const MAX_PAGES = 20;
 
-          // Render tất cả trang
-          const canvases: HTMLCanvasElement[] = [];
-          for (const p of pagesToRender) {
-            setProcessingText(`Đang render trang ${p}/${totalPages}...`);
+          for (let p = 1; p <= Math.min(totalPdfPages, MAX_PAGES); p++) {
+            setProcessingText(`Render trang ${p}/${totalPdfPages}...`);
             const page = await pdf.getPage(p);
-            const nativeViewport = page.getViewport({ scale: 1.0 });
-            const scale = MAX_WIDTH / nativeViewport.width;
-            const viewport = page.getViewport({ scale });
+            const viewport = page.getViewport({ scale: 1.5 });
             const canvas = document.createElement("canvas");
             const ctx = canvas.getContext("2d");
-            canvas.width = Math.round(nativeViewport.width * scale);
-            canvas.height = Math.round(nativeViewport.height * scale);
-
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
             if (ctx) {
-              await page.render({ canvasContext: ctx, viewport: viewport }).promise;
-              canvases.push(canvas);
-              if (p === 1) {
-                previewBase64 = canvas.toDataURL("image/jpeg", 0.5);
-              }
+              await page.render({ canvasContext: ctx, viewport }).promise;
+              pageImages.push(canvas.toDataURL("image/jpeg", 0.7));
+              if (p === 1) previewBase64 = canvas.toDataURL("image/jpeg", 0.4);
             }
-          }
-          
-          // Tự động phát hiện Vercel vs Local
-          const isVercel = typeof window !== 'undefined' && !window.location.hostname.includes('localhost');
-          
-          if (isVercel) {
-            // VERCEL MODE: Adaptive quality, giới hạn 3.5MB
-            const MAX_PAYLOAD = 3.5 * 1024 * 1024;
-            let quality = 0.5;
-            while (quality >= 0.15) {
-              pageImages.length = 0;
-              for (const canvas of canvases) {
-                pageImages.push(canvas.toDataURL("image/jpeg", quality));
-              }
-              const totalSize = pageImages.reduce((sum, img) => sum + img.length, 0);
-              console.log(`📐 [Vercel] Quality ${quality.toFixed(2)}: ${Math.round(totalSize / 1024)}KB`);
-              if (totalSize <= MAX_PAYLOAD) break;
-              quality -= 0.05;
-            }
-            console.log(`📤 [Vercel] Gửi ${pageImages.length} trang, quality=${quality.toFixed(2)}`);
-          } else {
-            // LOCAL MODE: Chất lượng cao, KHÔNG giới hạn
-            const QUALITY = 0.6;
-            for (const canvas of canvases) {
-              pageImages.push(canvas.toDataURL("image/jpeg", QUALITY));
-            }
-            const totalSize = pageImages.reduce((sum, img) => sum + img.length, 0);
-            console.log(`📤 [Local] Gửi ${pageImages.length} trang, quality=${QUALITY}, tổng=${Math.round(totalSize / 1024)}KB`);
           }
         } catch (pdfErr) {
-          console.error("❌ Lỗi render PDF sang ảnh:", pdfErr);
+          console.warn("❌ Lỗi render PDF:", pdfErr);
         }
 
         newPreviews.push(previewBase64);
         setPreviews([...newPreviews]);
 
-        // 2. Gửi TẤT CẢ ảnh trong 1 request duy nhất
+        // Gửi lên AI
         const selectedModel = settings.model || "gpt-4o";
-        console.log(`🤖 Model: ${selectedModel}`);
-        setProcessingText(`Đang gửi ${pageImages.length} trang lên AI (${selectedModel})...`);
-        
+        setProcessingText(`AI đang đọc báo cáo (${selectedModel})...`);
+
         const formData = new FormData();
         formData.append("model", selectedModel);
-        
-        if (pageImages.length > 0) {
-          pageImages.forEach((img, idx) => {
-            formData.append(`image_page_${idx + 1}`, img);
-          });
-          formData.append("total_pages_sent", String(pageImages.length));
-        } else {
-          // Fallback: gửi file PDF gốc
-          formData.append("file", file);
-          const pdfBase64 = await new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.readAsDataURL(file);
-          });
-          formData.append("pdf_base64", pdfBase64);
-        }
+        pageImages.forEach((img, idx) => formData.append(`image_page_${idx + 1}`, img));
+        formData.append("total_pages_sent", String(pageImages.length));
+        if (pageImages.length === 0) formData.append("file", file);
 
         const response = await fetch("/api/extract-contract", {
           method: "POST",
-          headers: { "x-api-key": settings.apiKey, "x-model": selectedModel },
-          body: formData
+          headers: { "x-api-key": apiKey, "x-model": selectedModel },
+          body: formData,
         });
-        const responseText = await response.text();
-        let result: any;
-        try { result = JSON.parse(responseText || "{}"); } catch (e) {
-          throw new Error(`API Error (HTTP ${response.status}): Invalid JSON.`);
-        }
+
+        const result = await response.json();
         if (!response.ok) throw new Error(result.error || `Server error ${response.status}`);
 
-        // Inject STT (auto-increment) and filename
-        result.data.stt = String(newData.length + 1);
-        result.data.tenFileHD = file.name;
+        // lkHomNay lay truc tiep tu "San luong %" tren PDF
+        const lkHomNayFromPdf = result.data?.lkHomNay || "0%";
+        const lkHomNayNum = parseFloat(lkHomNayFromPdf.replace("%", "").replace(",", ".")) || 0;
 
-        newData.push(result.data);
+        // lkHomQua: lay tu result neu co, neu khong de N/A (chua biet hom qua)
+        const lkHomQua = result.data?.lkHomQua || "N/A";
+        const lkHomQuaNum = parseFloat(lkHomQua.replace("%", "").replace(",", ".")) || 0;
+
+        // homNayPercent = lkHomNay - lkHomQua (neu biet ca 2)
+        const homNayCalc = lkHomQua !== "N/A"
+          ? (lkHomNayNum - lkHomQuaNum).toFixed(2) + "%"
+          : result.data?.homNayPercent || "N/A";
+
+        const baoCao: BaoCaoData = {
+          ...result.data,
+          khPercent:     "100%",
+          lkHomQua:      lkHomQua,
+          homNayPercent: homNayCalc,
+          lkHomNay:      lkHomNayFromPdf,
+          gtConLai:      result.data?.gtConLai || "N/A",
+          tenFile: file.name,
+        };
+
+        newData.push(baoCao);
         newScores.push(result.validationScores || {});
-
         setExtractedData([...newData]);
         setValidationScores([...newScores]);
 
-        // 3. Auto-Sync to Google Sheets
-        const scriptUrl = settings.scriptUrl || "";
-        if (scriptUrl) {
-          setProcessingText(`Đang đồng bộ "${result.data?.soHopDong || "N/A"}" lên Google Sheets (${selectedProject})...`);
-          try {
-            // Sync 1: Gửi đến sheet dự án riêng
-            const payload = buildSheetsPayload(result.data);
-            console.log(`📤 Sync [${i + 1}/${files.length}] → sheet "${selectedProject}"`);
-            const syncResp = await fetch("/api/sync-sheets", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ scriptUrl, payload }),
-            });
-            const syncResult = await syncResp.json();
-            console.log(`✅ Sync [${i + 1}] project sheet:`, syncResult);
+        // Không auto-sync từng file — sẽ sync batch sau khi extract hết tất cả
 
-            // Sync 2: Gửi đến sheet "Tổng Hợp"
-            setProcessingText(`Đang đồng bộ về Tổng Hợp...`);
-            const tongHopPayload = buildSheetsPayload(result.data, "Tổng Hợp");
-            console.log(`📤 Sync [${i + 1}] → sheet "Tổng Hợp" (loại: ${result.data.loaiHopDong || "CHU_DAU_TU"})`);
-            const tongHopResp = await fetch("/api/sync-sheets", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ scriptUrl, payload: tongHopPayload }),
-            });
-            const tongHopResult = await tongHopResp.json();
-            console.log(`✅ Sync [${i + 1}] Tổng Hợp:`, tongHopResult);
-
-            if (i < files.length - 1) await new Promise(r => setTimeout(r, 500));
-          } catch (syncError) {
-            console.error(`❌ Sync failed [${i + 1}]:`, syncError);
-          }
-        } else {
-          console.warn("⚠️ Chưa cấu hình Google Apps Script URL trong Settings.");
-        }
-
+        if (i < files.length - 1) await new Promise((r) => setTimeout(r, 500));
       } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : 'Unknown error';
-        alert(`Lỗi xử lý file "${file.name}": ${msg}`);
+        const msg = e instanceof Error ? e.message : "Unknown error";
+        showToast(`Lỗi xử lý "${file.name}": ${msg}`, "error");
+        if (newData.length === 0) {
+          setStatus("IDLE");
+          return;
+        }
       }
     }
 
-    setStatus("SUCCESS");
-    setSyncStatus("SUCCESS");
-    setTimeout(() => setSyncStatus("IDLE"), 5000);
+    // ── Sau khi extract xong TẤT CẢ → sync batch với logic 2 ngày gần nhất ──
+    if (newData.length > 0) {
+      setProcessingText("Đang đồng bộ lên Google Sheets (2 ngày gần nhất)...");
+      const scriptUrl = settings.scriptUrl || DEFAULT_SCRIPT_URL;
+      try {
+        await syncWithTwoDayLogic(newData, scriptUrl);
+        setStatus("SUCCESS");
+        setSyncStatus("SUCCESS");
+        setTimeout(() => setSyncStatus("IDLE"), 5000);
+      } catch (syncErr) {
+        console.error("❌ Batch sync failed:", syncErr);
+        setStatus("SUCCESS"); // extract vẫn thành công
+        showToast("Đã extract xong nhưng đồng bộ Sheets thất bại. Nhấn 'Đồng bộ Sheets' để thử lại.", "warning");
+      }
+    }
   };
 
-  const buildSheetsPayload = (data: HopDongData, targetSheet?: string) => ({
-    sheetName: targetSheet || selectedProject,
-    stt: data.stt || "N/A",
-    tenDuAn: data.tenDuAn || "N/A",
-    soHopDong: data.soHopDong || "N/A",
-    donViKy: data.donViKy || "N/A",
-    giaTri: data.giaTri || "N/A",
-    tiLeHopDong: data.tiLeHopDong || "N/A",
-    daTamUng: data.daTamUng || "N/A",
-    thuHoiTamUng: data.thuHoiTamUng || "N/A",
-    conLaiChuaThuHoi: data.conLaiChuaThuHoi || "N/A",
-    loaiHopDong: data.loaiHopDong || "CHU_DAU_TU",
-    tenFileHD: data.tenFileHD || "N/A",
+  // ── Hàm sync dùng chung cho cả auto-sync và manual sync ──────────────────
+  const syncWithTwoDayLogic = async (data: BaoCaoData[], scriptUrl: string) => {
+    const parseDate = (d: string) => {
+      if (!d || d === "N/A") return 0;
+      const parts = d.split("/");
+      if (parts.length === 3) return new Date(+parts[2], +parts[1]-1, +parts[0]).getTime();
+      return new Date(d).getTime() || 0;
+    };
+
+    // Group theo tên dự án
+    const groups: Record<string, BaoCaoData[]> = {};
+    for (const item of data) {
+      const key = (item.tenDuAn || "N/A").trim().toUpperCase();
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(item);
+    }
+
+    // Mỗi project: sort ngày asc → lấy 2 mới nhất
+    const toSync: Array<{ data: BaoCaoData; lkHomQuaOverride?: string }> = [];
+
+    for (const key in groups) {
+      const sorted = groups[key].sort((a, b) =>
+        parseDate(a.ngayBaoCao) - parseDate(b.ngayBaoCao)
+      );
+      const last2 = sorted.slice(-2);
+
+      if (last2.length === 2) {
+        toSync.push({ data: last2[0] }); // ngày N-1 sync trước
+        toSync.push({
+          data: last2[1],
+          lkHomQuaOverride: last2[0].lkHomNay || "0%", // lkHomNay(N-1) → làm D cho ngày N
+        });
+      } else {
+        toSync.push({ data: last2[0] });
+      }
+    }
+
+    for (const item of toSync) {
+      const payload = buildSheetsPayload(item.data);
+      if (item.lkHomQuaOverride) {
+        (payload as any).lkHomQuaOverride = item.lkHomQuaOverride;
+      }
+      await fetch("/api/sync-sheets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scriptUrl, payload }),
+      });
+      await new Promise((r) => setTimeout(r, 400));
+    }
+  };
+
+  const buildSheetsPayload = (data: BaoCaoData) => ({
+    action: "updateBaoCao",
+    tenDuAn:          data.tenDuAn          || "N/A",
+    ngayBaoCao:       data.ngayBaoCao       || "N/A",
+    khPercent:        data.khPercent        || "N/A",
+    lkHomQua:         data.lkHomQua         || "N/A",
+    homNayPercent:    data.homNayPercent    || "N/A",
+    lkHomNay:         data.lkHomNay         || "N/A",
+    gtHopDong:        data.gtHopDong        || "N/A",
+    gtSanLuong:       data.gtSanLuong       || "N/A",
+    gtConLai:         data.gtConLai         || "N/A",
+    gtNghiemThu:      data.gtNghiemThu      || "N/A",
+    congViecTrongNgay: data.congViecTrongNgay || "N/A",
+    vuongMac:         data.vuongMac         || "N/A",
+    tenFile:          data.tenFile          || "N/A",
   });
 
-  const handleDataUpdate = (index: number, updatedItem: HopDongData) => {
+
+
+  const handleDataUpdate = (index: number, updatedItem: BaoCaoData) => {
     const updated = [...extractedData];
     updated[index] = updatedItem;
     setExtractedData(updated);
@@ -298,115 +277,150 @@ export default function Home() {
 
   const handleSync = async () => {
     if (extractedData.length === 0) return;
-    const savedSettings = localStorage.getItem("contract_ai_settings");
-    const settings = savedSettings ? JSON.parse(savedSettings) : null;
-
-    const scriptUrl = (settings && settings.scriptUrl) ? settings.scriptUrl : "";
-    if (!scriptUrl) { alert("Chưa cấu hình Google Apps Script URL trong Settings."); setSyncStatus("IDLE"); return; }
+    const savedSettings = localStorage.getItem("bdh_bao_cao_settings");
+    const settings = savedSettings ? JSON.parse(savedSettings) : {};
+    const scriptUrl = settings.scriptUrl || DEFAULT_SCRIPT_URL;
 
     setSyncStatus("SYNCING");
     try {
-      for (const data of extractedData) {
-        // Sync 1: Sheet dự án
-        const payload = buildSheetsPayload(data);
-        console.log(`📤 Manual sync → sheet "${selectedProject}"`);
-        const resp = await fetch("/api/sync-sheets", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ scriptUrl, payload }),
-        });
-        const result = await resp.json();
-        console.log(`✅ Manual sync project:`, result);
-
-        // Sync 2: Sheet Tổng Hợp
-        const tongHopPayload = buildSheetsPayload(data, "Tổng Hợp");
-        console.log(`📤 Manual sync → sheet "Tổng Hợp"`);
-        const tongHopResp = await fetch("/api/sync-sheets", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ scriptUrl, payload: tongHopPayload }),
-        });
-        const tongHopResult = await tongHopResp.json();
-        console.log(`✅ Manual sync Tổng Hợp:`, tongHopResult);
-
-        await new Promise(r => setTimeout(r, 500));
-      }
+      await syncWithTwoDayLogic(extractedData, scriptUrl);
       setSyncStatus("SUCCESS");
       setTimeout(() => setSyncStatus("IDLE"), 5000);
     } catch (error) {
       console.error("Sync error:", error);
-      alert("Failed to sync to Google Sheets.");
+      showToast("Lỗi khi đồng bộ lên Google Sheets. Kiểm tra kết nối và thử lại.", "error");
       setSyncStatus("IDLE");
     }
   };
 
+  const toastConfig = {
+    error:   { icon: AlertCircle,    color: "#f87171", bg: "rgba(239,68,68,0.12)",   border: "rgba(239,68,68,0.3)" },
+    warning: { icon: AlertCircle,    color: "#fb923c", bg: "rgba(251,146,60,0.12)",  border: "rgba(251,146,60,0.3)" },
+    success: { icon: CheckCircle2,   color: "#34d399", bg: "rgba(52,211,153,0.12)",  border: "rgba(52,211,153,0.3)" },
+    info:    { icon: Info,           color: "#60a5fa", bg: "rgba(96,165,250,0.12)",  border: "rgba(96,165,250,0.3)" },
+  };
+
   return (
-    <main className="relative flex h-screen w-full overflow-hidden" style={{ background: '#050505', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-      {/* Subtle radial glow background */}
-      <div className="absolute inset-0 pointer-events-none" style={{
-        background: 'radial-gradient(ellipse 60% 50% at 20% 50%, rgba(0,242,255,0.03) 0%, transparent 70%), radial-gradient(ellipse 40% 60% at 80% 30%, rgba(155,93,229,0.03) 0%, transparent 70%)'
-      }} />
+    <main
+      className="relative flex h-screen w-full overflow-hidden"
+      style={{ background: "#050505", fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+    >
+      {/* Background glow */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background:
+            "radial-gradient(ellipse 60% 50% at 20% 50%, rgba(0,242,255,0.03) 0%, transparent 70%), radial-gradient(ellipse 40% 60% at 80% 30%, rgba(16,185,129,0.03) 0%, transparent 70%)",
+        }}
+      />
+
+      {/* Toast Notifications */}
+      <div className="absolute top-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none">
+        <AnimatePresence>
+          {toasts.map((toast) => {
+            const cfg = toastConfig[toast.type];
+            const Icon = cfg.icon;
+            return (
+              <motion.div
+                key={toast.id}
+                initial={{ opacity: 0, x: 40, scale: 0.95 }}
+                animate={{ opacity: 1, x: 0, scale: 1 }}
+                exit={{ opacity: 0, x: 40, scale: 0.95 }}
+                transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+                className="flex items-start gap-3 px-4 py-3 rounded-xl pointer-events-auto"
+                style={{
+                  background: cfg.bg,
+                  border: `1px solid ${cfg.border}`,
+                  backdropFilter: "blur(20px)",
+                  boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+                }}
+              >
+                <Icon className="w-4 h-4 mt-0.5 shrink-0" style={{ color: cfg.color }} />
+                <p className="text-xs leading-relaxed flex-1" style={{ color: cfg.color }}>{toast.message}</p>
+                <button
+                  onClick={() => dismissToast(toast.id)}
+                  className="shrink-0 opacity-50 hover:opacity-100 transition-opacity"
+                  style={{ color: cfg.color }}
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </motion.div>
+            );
+          })}
+        </AnimatePresence>
+      </div>
 
       {/* Settings Button */}
       <button
         onClick={() => setIsSettingsOpen(true)}
         className="absolute top-5 left-5 z-20 w-10 h-10 flex items-center justify-center rounded-xl border border-white/10 text-white/40 hover:text-white hover:border-[rgba(0,242,255,0.3)] hover:shadow-[0_0_15px_rgba(0,242,255,0.2)] transition-all group"
-        style={{ background: 'rgba(18,18,18,0.8)', backdropFilter: 'blur(20px)' }}
+        style={{ background: "rgba(18,18,18,0.8)", backdropFilter: "blur(20px)" }}
       >
         <Settings className="w-4 h-4 group-hover:rotate-90 transition-transform duration-500" />
       </button>
 
-      {/* Left Panel: Upload OR PDF Viewer */}
+      {/* Left: Upload or PDF Viewer */}
       <div className="w-[40%] h-full shrink-0 p-4">
         {status === "SUCCESS" && fileUrls.length > 0 ? (
-          <div className="h-full w-full flex flex-col rounded-2xl overflow-hidden border border-white/[0.08] shadow-[0_0_0_1px_rgba(0,242,255,0.06),0_0_40px_rgba(0,242,255,0.04),0_20px_60px_rgba(0,0,0,0.8)]" style={{ background: 'rgba(12,12,12,0.95)' }}>
+          <div
+            className="h-full w-full flex flex-col rounded-2xl overflow-hidden border border-white/[0.08] shadow-[0_0_0_1px_rgba(0,242,255,0.06),0_20px_60px_rgba(0,0,0,0.8)]"
+            style={{ background: "rgba(12,12,12,0.95)" }}
+          >
             {/* PDF Header */}
-            <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]" style={{ background: 'rgba(18,18,18,0.8)' }}>
+            <div
+              className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]"
+              style={{ background: "rgba(18,18,18,0.8)" }}
+            >
               <div>
-                <h3 className="text-xs font-bold text-white/90 tracking-wide">📄 File Hợp Đồng Gốc</h3>
-                <p className="text-[10px] text-white/30 mt-0.5">Đối chiếu thông tin trực tiếp</p>
+                <h3 className="text-xs font-bold text-white/90 tracking-wide">📄 File Báo Cáo Gốc</h3>
+                <p className="text-[10px] text-white/30 mt-0.5">Đối chiếu nội dung trực tiếp</p>
               </div>
               <div className="flex items-center gap-2">
-                {fileUrls.length > 1 && fileUrls.map((_, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setSelectedPdfIndex(i)}
-                    className={`w-7 h-7 rounded-lg text-[11px] font-bold transition-all border ${i === selectedPdfIndex
-                      ? 'text-[#00f2ff] border-[rgba(0,242,255,0.3)] shadow-[0_0_10px_rgba(0,242,255,0.2)]'
-                      : 'text-white/30 border-white/10 hover:text-white'}`}
-                    style={{ background: i === selectedPdfIndex ? 'rgba(0,242,255,0.1)' : 'rgba(255,255,255,0.03)' }}
-                  >
-                    {i + 1}
-                  </button>
-                ))}
+                {fileUrls.length > 1 &&
+                  fileUrls.map((_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setSelectedPdfIndex(i)}
+                      className={`w-7 h-7 rounded-lg text-[11px] font-bold transition-all border ${
+                        i === selectedPdfIndex
+                          ? "text-[#00f2ff] border-[rgba(0,242,255,0.3)]"
+                          : "text-white/30 border-white/10 hover:text-white"
+                      }`}
+                      style={{
+                        background: i === selectedPdfIndex ? "rgba(0,242,255,0.1)" : "rgba(255,255,255,0.03)",
+                      }}
+                    >
+                      {i + 1}
+                    </button>
+                  ))}
                 <button
-                  onClick={() => { setStatus("IDLE"); setPreviews([]); setFileUrls([]); setExtractedData([]); setValidationScores([]); }}
+                  onClick={() => {
+                    setStatus("IDLE");
+                    setPreviews([]);
+                    setFileUrls([]);
+                    setExtractedData([]);
+                    setValidationScores([]);
+                  }}
                   className="px-3 py-1.5 text-[10px] font-bold text-white/30 hover:text-[#00f2ff] border border-white/10 hover:border-[rgba(0,242,255,0.25)] rounded-lg transition-all"
-                  style={{ background: 'rgba(255,255,255,0.03)' }}
+                  style={{ background: "rgba(255,255,255,0.03)" }}
                 >
                   Upload mới
                 </button>
               </div>
             </div>
-            {/* PDF Iframe */}
-            <iframe
-              src={fileUrls[selectedPdfIndex]}
-              className="flex-1 w-full border-0"
-              title="PDF Viewer"
-            />
+            <iframe src={fileUrls[selectedPdfIndex]} className="flex-1 w-full border-0" title="PDF Viewer" />
           </div>
         ) : (
           <UploadPanel
             onUpload={handleUpload}
+            onConfigureRequired={() => setIsSettingsOpen(true)}
             status={status}
             processingText={processingText}
-            selectedProject={selectedProject}
-            onProjectChange={setSelectedProject}
-            projectOptions={projectOptions}
           />
         )}
       </div>
 
+      {/* Right: Results */}
       <div className="w-[60%] h-full shrink-0">
         <ResultsPanel
           dataList={extractedData}
@@ -424,7 +438,8 @@ export default function Home() {
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={handleSettingsClose}
-        onSave={(settings) => console.log("Saved config:", settings)}
+        onSave={(s) => console.log("Saved:", s)}
+        defaultScriptUrl={DEFAULT_SCRIPT_URL}
       />
     </main>
   );
