@@ -1,13 +1,7 @@
 import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
 
-export const config = {
-    api: {
-        bodyParser: {
-            sizeLimit: '15mb',
-        },
-    },
-};
+
 
 export async function POST(request: Request) {
     try {
