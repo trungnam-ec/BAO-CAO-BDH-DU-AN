@@ -108,8 +108,8 @@ function handleUpdateBaoCao(data) {
       sheet.getRange(targetRow, 7).setValue(sheet.getRange(lastR, 7).getValue());
       sheet.getRange(targetRow, 7).setNumberFormat("#,##0.000");
 
-      // Set công thức (sử dụng SUM để tránh #VALUE! nếu cột D hoặc E rỗng hoặc có chuỗi văn bản)
-      sheet.getRange(targetRow, 6).setFormula("=SUM(D" + targetRow + ",E" + targetRow + ")");
+      // Set công thức (công thức D+E để tính lũy kế, tránh #VALUE! khi có ô trống)
+      sheet.getRange(targetRow, 6).setFormula("=D" + targetRow + "+E" + targetRow);
       sheet.getRange(targetRow, 6).setNumberFormat("0.00%");
       sheet.getRange(targetRow, 10).setFormula("=IFERROR(H" + targetRow + "/G" + targetRow + ")");
       sheet.getRange(targetRow, 10).setNumberFormat("0.00%");
@@ -329,7 +329,7 @@ function addNewProjectRow(sheet, tenDuAn, data) {
   sheet.getRange(row, 5).setNumberFormat("0.00%");
 
   // F = LK HÔM NAY = D+E (công thức, không ghi đè)
-  sheet.getRange(row, 6).setFormula("=SUM(D" + row + ",E" + row + ")");
+  sheet.getRange(row, 6).setFormula("=D" + row + "+E" + row);
   sheet.getRange(row, 6).setNumberFormat("0.00%");
 
   // J = % SL/HĐ (Sử dụng hàm không chứa dấu phẩy để tránh hoàn toàn lỗi Locale)
