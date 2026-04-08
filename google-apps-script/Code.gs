@@ -83,7 +83,6 @@ function handleUpdateBaoCao(data) {
       
       // Update mảng rows (nếu insert dòng bên dưới tất cả các dòng cũ thì ko làm thay đổi index các dòng cũ)
       rows.push(targetRow);
-      isNew = true;
 
       // Cột K: Ngày cập nhật (hoặc Ngày báo cáo)
       if (incomingDate && incomingDate !== "N/A") {
@@ -99,11 +98,18 @@ function handleUpdateBaoCao(data) {
       sheet.getRange(targetRow, 2).setValue(sheet.getRange(lastR, 2).getValue());
       sheet.getRange(targetRow, 3).setValue(sheet.getRange(lastR, 3).getValue());
       sheet.getRange(targetRow, 3).setNumberFormat("0%");
+      
+      // Auto-roll: Lũy kế hôm qua (Cột D dòng mới) = Lũy kế hôm nay (Cột F dòng cũ)
+      var prevF = sheet.getRange(lastR, 6).getValue();
+      var prevFNum = (typeof prevF === "number" && !isNaN(prevF)) ? prevF : 0;
+      sheet.getRange(targetRow, 4).setValue(prevFNum);
+      sheet.getRange(targetRow, 4).setNumberFormat("0.00%");
+      
       sheet.getRange(targetRow, 7).setValue(sheet.getRange(lastR, 7).getValue());
       sheet.getRange(targetRow, 7).setNumberFormat("#,##0.000");
 
-      // Set công thức
-      sheet.getRange(targetRow, 6).setFormula("=D" + targetRow + "+E" + targetRow);
+      // Set công thức (sử dụng SUM để tránh #VALUE! nếu cột D hoặc E rỗng hoặc có chuỗi văn bản)
+      sheet.getRange(targetRow, 6).setFormula("=SUM(D" + targetRow + ",E" + targetRow + ")");
       sheet.getRange(targetRow, 6).setNumberFormat("0.00%");
       sheet.getRange(targetRow, 10).setFormula("=IFERROR(H" + targetRow + "/G" + targetRow + ")");
       sheet.getRange(targetRow, 10).setNumberFormat("0.00%");
@@ -323,7 +329,7 @@ function addNewProjectRow(sheet, tenDuAn, data) {
   sheet.getRange(row, 5).setNumberFormat("0.00%");
 
   // F = LK HÔM NAY = D+E (công thức, không ghi đè)
-  sheet.getRange(row, 6).setFormula("=D" + row + "+E" + row);
+  sheet.getRange(row, 6).setFormula("=SUM(D" + row + ",E" + row + ")");
   sheet.getRange(row, 6).setNumberFormat("0.00%");
 
   // J = % SL/HĐ (Sử dụng hàm không chứa dấu phẩy để tránh hoàn toàn lỗi Locale)
@@ -358,62 +364,55 @@ function countProjects(sheet, untilRow) {
 function updateRowData(sheet, row, data, isNew) {
   var updated = [];
 
-  // ── Cột D & E: AUTO-ROLL lũy kế ──────────────────────────────────────────
-  //
-  //  App gửi kèm lkHomQuaOverride khi upload batch 2 ngày:
-  //    lkHomQuaOverride = lkHomNay của ngày N-1 → làm D trực tiếp
-  //
-  //  Nếu KHÔNG có override → tự đọc F (auto-roll như bình thường)
-  //
-  var lkHomNayStr = data.lkHomNay || "0%";
-  var lkHomNayNum = parsePercent(lkHomNayStr);
+  // ── Cột D & E: Tính toán Lũy kế ──────────────────────────────────────
+  var dNew = 0;
+  var overrideD = false;
 
-  if (lkHomNayNum !== null) {
-    var dNew = 0;
+  if (isNew) {
+    // Dự án mới hoàn toàn
+    dNew = 0;
+  } else {
+    // Dự án cũ hoặc dòng mới của ngày mới đã được điền Lũy kế hôm qua vào cột D
+    var dCell = sheet.getRange(row, 4).getValue();
+    dNew = (typeof dCell === "number" && !isNaN(dCell)) ? dCell : 0;
+  }
 
-    if (data.lkHomQuaOverride) {
-      // ── Override từ app (batch upload 2 ngày) ──
-      var overrideNum = parsePercent(String(data.lkHomQuaOverride));
-      dNew = (overrideNum !== null) ? overrideNum : 0;
+  // 1. Cập nhật D nếu có override từ App (gửi kèm Lũy kế hôm qua)
+  if (data.lkHomQuaOverride) {
+    var overrideNum = parsePercent(String(data.lkHomQuaOverride));
+    if (overrideNum !== null) {
+      dNew = overrideNum;
+      overrideD = true;
       sheet.getRange(row, 4).setValue(dNew);
       sheet.getRange(row, 4).setNumberFormat("0.00%");
       updated.push("D←override=" + (dNew * 100).toFixed(2) + "%");
+    }
+  }
 
-    } else if (isNew) {
-      // Dự án MỚI: D = 0
-      dNew = 0;
+  // 2. Tính toán E
+  var lkHomNayStr = data.lkHomNay || "0%";
+  var lkHomNayNum = parsePercent(lkHomNayStr);
 
-    } else {
-      // Dự án ĐÃ CÓ: auto-roll D ← F(ngày trước)
-      var fCell = sheet.getRange(row, 6).getValue();
-      var fNum  = (typeof fCell === "number" && !isNaN(fCell)) ? fCell : 0;
-
-      if (fNum > 0) {
-        dNew = fNum;
-        sheet.getRange(row, 4).setValue(dNew);
-        sheet.getRange(row, 4).setNumberFormat("0.00%");
-        updated.push("D←F=" + (dNew * 100).toFixed(2) + "% (auto-roll)");
-      } else {
-        var dCell = sheet.getRange(row, 4).getValue();
-        dNew = (typeof dCell === "number" && !isNaN(dCell)) ? dCell : 0;
+  // Nếu không nhận diện được Lũy kế hôm nay (PDF), sử dụng % Hôm nay (PDF) (nếu có)
+  if (lkHomNayNum === null || lkHomNayNum === 0 || lkHomNayStr === "N/A" || lkHomNayStr === "0%" || lkHomNayStr === "") {
+    if (data.homNayPercent && data.homNayPercent !== "N/A") {
+      var pct = parsePercent(data.homNayPercent);
+      if (pct !== null) {
+        sheet.getRange(row, 5).setValue(pct);
+        sheet.getRange(row, 5).setNumberFormat("0.00%");
+        updated.push("E=" + data.homNayPercent + " (từ % Hôm nay gốc)");
       }
     }
-
-    // E = lkHomNay(PDF) - D(hôm qua)
+  } else {
+    // E = Lũy kế hôm nay (PDF) - Lũy kế hôm qua (D)
     var homNayNum = lkHomNayNum - dNew;
-    // Bỏ tự động clamp 0 để test data hiển thị chính xác
-    // if (homNayNum < 0) homNayNum = 0;
-
     sheet.getRange(row, 5).setValue(homNayNum);
     sheet.getRange(row, 5).setNumberFormat("0.00%");
-    updated.push("E=" + (homNayNum * 100).toFixed(2) + "%  [" + (lkHomNayNum*100).toFixed(2) + "% - " + (dNew*100).toFixed(2) + "%]");
-
-  } else if (data.homNayPercent && data.homNayPercent !== "N/A") {
-    var pct = parsePercent(data.homNayPercent);
-    if (pct !== null) {
-      sheet.getRange(row, 5).setValue(pct);
-      sheet.getRange(row, 5).setNumberFormat("0.00%");
-      updated.push("E=" + data.homNayPercent + " (fallback)");
+    
+    if (overrideD) {
+      updated.push("E=" + (homNayNum * 100).toFixed(2) + "% [LK HN (PDF) - Override D]");
+    } else {
+      updated.push("E=" + (homNayNum * 100).toFixed(2) + "% [LK HN (PDF) - D]");
     }
   }
 

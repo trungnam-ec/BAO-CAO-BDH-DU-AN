@@ -91,7 +91,7 @@ function setupFormulas() {
     
     // Cột F: LK HÔM NAY = LK HÔM QUA + HÔM NAY
     var cellF = sheet.getRange(r, 6); // Cột F = index 6
-    cellF.setFormula("=D" + r + "+E" + r);
+    cellF.setFormula("=SUM(D" + r + ",E" + r + ")");
     cellF.setNumberFormat("0.00%");
     
     // Cột J: % SL/HĐ = GT Sản Lượng / GT Hợp Đồng
