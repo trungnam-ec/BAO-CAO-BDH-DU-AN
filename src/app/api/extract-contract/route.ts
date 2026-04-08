@@ -78,15 +78,28 @@ MAU BAO CAO CO CAU TRUC:
 
 CAC TRUONG CAN TRICH XUAT:
 
-1. "ngayBaoCao": Ngày của báo cáo này (BẮT BUỘC PHẢI CÓ).
-   - VỊ TRÍ ƯU TIÊN 1: Đọc từ TÊN FILE PDF ("${fileName}") trước tiên. Nếu tên file có chứa ngày tháng (Ví dụ: "BÁO CÁO NGÀY_04.4.2026.pdf" -> 04/04/2026), hãy lấy ngay ngày đó làm kết quả.
-   - VỊ TRÍ ƯU TIÊN 2: Nếu tên file không có ngày, tìm trong văn bản chỗ nào có chữ "BÁO CÁO NGÀY", ngày tháng báo cáo sẽ nằm ngay cạnh hoặc phía dưới dòng chữ đó.
-   - VỊ TRÍ ƯU TIÊN 3: Dòng chứa cụm từ "Công việc thực hiện ngày: ..." hoặc "Ngày báo cáo: ...".
-   - VỊ TRÍ ƯU TIÊN 4: Bất kỳ chỗ nào có định dạng ngày tháng năm (d/m/y) ở 1/3 đầu trang.
-   - LƯU Ý QUAN TRỌNG: Ngày tháng có thể bị lỗi OCR (viết dính chữ hoặc thừa khoảng trắng), hãy thông minh ghép lại cho đúng.
-   - LƯU Ý VỀ ĐẢO LỘN NGÀY VÀ THÁNG: BẮT BUỘC dựa vào tháng hiện tại là THÁNG ${currentMonth} NĂM ${currentYear}.
-     * AI phải ưu tiên chọn ngày hợp lý gần với hôm nay nhất nếu định dạng ngày/tháng bị đảo lộn. Dù văn bản viết thế nào cũng phải tự suy luận ra đúng Ngày/Tháng.
-   - Định dạng kết quả TRẢ VỀ: DD/MM/YYYY. Tuyệt đối không được để trống. Lấy chính xác ngày đang báo cáo.
+
+1. "ngayBaoCao": Ngày của báo cáo này (BẮT BUỘC - QUAN TRỌNG NHẤT).
+   *** QUY TRÌNH XÁC ĐỊNH NGÀY - PHẢI TUÂN THEO ĐÚNG THỨ TỰ ***
+   
+   BƯỚC 1 (BẮT BUỘC LÀM TRƯỚC TIÊN): Đọc TÊN FILE PDF: "${fileName}"
+   - Phân tích tên file để tìm ngày tháng năm.
+   - Ví dụ tên file: "BÁO CÁO NGÀY_04.4.2026.pdf" → ngày là 04/04/2026
+   - Ví dụ tên file: "bao_cao_XLNT_07042026.pdf" → ngày là 07/04/2026
+   - Ví dụ tên file: "BC_28032026.pdf" → ngày là 28/03/2026
+   - Nếu tên file CÓ CHỨA NGÀY → DÙNG NGAY ngày đó, KHÔNG CẦN tìm thêm.
+   
+   BƯỚC 2 (CHỈ KHI tên file KHÔNG có ngày): Tìm trong nội dung văn bản cụm "BÁO CÁO NGÀY" hoặc "BAO CAO NGAY".
+   - Ngày tháng sẽ nằm NGAY SAU hoặc NGAY DƯỚI dòng chứa cụm từ này.
+   - Ví dụ: "BÁO CÁO NGÀY 05 THÁNG 04 NĂM 2026" → 05/04/2026
+   
+   BƯỚC 3 (CHỈ KHI bước 1 và 2 đều không có): Tìm "Công việc thực hiện ngày:" hoặc "Ngày báo cáo:".
+   
+   BƯỚC 4 (CUỐI CÙNG): Tìm bất kỳ định dạng ngày d/m/y ở 1/3 đầu trang.
+   
+   - LƯU Ý OCR: Ngày tháng có thể bị dính chữ hoặc thừa khoảng trắng, hãy ghép lại cho đúng.
+   - LƯU Ý THÁNG: Tháng hiện tại là THÁNG ${currentMonth} NĂM ${currentYear}. Ưu tiên chọn ngày hợp lý gần hôm nay nhất.
+   - Định dạng kết quả: DD/MM/YYYY. TUYỆT ĐỐI KHÔNG ĐƯỢC ĐỂ TRỐNG.
 
 2. "tenDuAn": Ten du an / cong trinh - LAY DAY DU, CHINH XAC.
    - Tim o truong "Du an:" trong phan thong tin du an o dau trang PDF (o header hoac phan mo dau)
