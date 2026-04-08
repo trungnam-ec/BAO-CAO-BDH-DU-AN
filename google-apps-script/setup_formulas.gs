@@ -97,9 +97,9 @@ function setupFormulas() {
     var cellJ = sheet.getRange(r, 10); // Cột J = index 10
     cellJ.setFormula('=IF(G' + r + '=0,"",H' + r + '/G' + r + ')');
     cellJ.setNumberFormat("0.00%");
-    // Cột L: Cảnh báo dựa trên J và F (Dùng setFormula gắt gao nhất không khoảng trắng y hệt cột J)
+    // Cột L: Cảnh báo dựa trên J và F (Đơn giản hóa công thức để tránh #ERROR! do khác biệt locale)
     var cellL = sheet.getRange(r, 12); // Cột L = index 12
-    cellL.setFormula('=IF(J'+r+'="","",IF(J'+r+'>F'+r+',"TOT","CANH BAO"))');
+    cellL.setFormula('=IF(J'+r+'>F'+r+',"TOT","CANH BAO")');
     
     // Xóa việc set conditional formatting trong mỗi vòng lặp ở đây.
     // Việc apply Conditional Formatting sẽ được thực hiện 1 lần duy nhất cho toàn cột L ở phía dưới (Bước 4)
@@ -191,7 +191,8 @@ function setupFormulas() {
       .setRanges([rangeAlert])
       .build();
       
-    newRules.push(greenRule, redRule, yellowRule);
+    // Thứ tự cực kỳ quan trọng: Yellow (lỗi/trống) phải đè lên Red (cảnh báo)
+    newRules.push(yellowRule, greenRule, redRule);
     sheet.setConditionalFormatRules(newRules);
   }
   

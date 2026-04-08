@@ -127,8 +127,8 @@ function handleUpdateBaoCao(data) {
       sheet.getRange(targetRow, 6).setNumberFormat("0.00%");
       sheet.getRange(targetRow, 10).setFormula("=IFERROR(H" + targetRow + "/G" + targetRow + ")");
       sheet.getRange(targetRow, 10).setNumberFormat("0.00%");
-      // L = Cảnh báo
-      sheet.getRange(targetRow, 12).setFormula('=IF(J'+targetRow+'="","",IF(J'+targetRow+'>F'+targetRow+',"TOT","CANH BAO"))');
+      // L = Cảnh báo (Đơn giản hóa để không bị #ERROR! do locale)
+      sheet.getRange(targetRow, 12).setFormula('=IF(J'+targetRow+'>F'+targetRow+',"TOT","CANH BAO")');
     }
   }
 
