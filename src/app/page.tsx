@@ -227,10 +227,7 @@ export default function Home() {
 
       if (last2.length === 2) {
         toSync.push({ data: last2[0] }); // ngày N-1 sync trước
-        toSync.push({
-          data: last2[1],
-          lkHomQuaOverride: last2[0].lkHomNay || "0%", // lkHomNay(N-1) → làm D cho ngày N
-        });
+        toSync.push({ data: last2[1] });
       } else {
         toSync.push({ data: last2[0] });
       }
@@ -238,9 +235,6 @@ export default function Home() {
 
     for (const item of toSync) {
       const payload = buildSheetsPayload(item.data);
-      if (item.lkHomQuaOverride) {
-        (payload as any).lkHomQuaOverride = item.lkHomQuaOverride;
-      }
       await fetch("/api/sync-sheets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

@@ -97,9 +97,16 @@ function setupFormulas() {
     var cellJ = sheet.getRange(r, 10); // Cột J = index 10
     cellJ.setFormula('=IF(G' + r + '=0,"",H' + r + '/G' + r + ')');
     cellJ.setNumberFormat("0.00%");
-    // Cột L: Cảnh báo dựa trên J và F (Đơn giản hóa công thức để tránh #ERROR! do khác biệt locale)
-    var cellL = sheet.getRange(r, 12); // Cột L = index 12
-    cellL.setFormula('=IF(J'+r+'>F'+r+',"TOT","CANH BAO")');
+    // Cột L: Cảnh báo - GHI GIÁ TRỊ TRỰC TIẾP (không dùng formula để tránh lỗi locale)
+    var valJ = sheet.getRange(r, 10).getValue();
+    var valF = sheet.getRange(r, 6).getValue();
+    var isJOk = (typeof valJ === "number" && !isNaN(valJ) && valJ !== 0);
+    var isFOk = (typeof valF === "number" && !isNaN(valF));
+    if (isJOk && isFOk) {
+      sheet.getRange(r, 12).setValue(valJ > valF ? "TOT" : "CANH BAO");
+    } else {
+      sheet.getRange(r, 12).setValue("");
+    }
     
     // Xóa việc set conditional formatting trong mỗi vòng lặp ở đây.
     // Việc apply Conditional Formatting sẽ được thực hiện 1 lần duy nhất cho toàn cột L ở phía dưới (Bước 4)
@@ -133,8 +140,8 @@ function setupFormulas() {
     sheet.getRange(summaryRow, 9).setNumberFormat("0.000");
     
     // J tổng: % SL/HĐ tổng
-    sheet.getRange(summaryRow, 10).setFormula(
-      "=IF(G" + summaryRow + "=0,\"\",H" + summaryRow + "/G" + summaryRow + ")"
+    sheet.getRange(summaryRow, 10).setFormulaLocal(
+      '=IF(G' + summaryRow + '=0;"";H' + summaryRow + '/G' + summaryRow + ')'
     );
     sheet.getRange(summaryRow, 10).setNumberFormat("0.00%");
     

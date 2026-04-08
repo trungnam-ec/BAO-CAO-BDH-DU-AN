@@ -127,8 +127,7 @@ function handleUpdateBaoCao(data) {
       sheet.getRange(targetRow, 6).setNumberFormat("0.00%");
       sheet.getRange(targetRow, 10).setFormula("=IFERROR(H" + targetRow + "/G" + targetRow + ")");
       sheet.getRange(targetRow, 10).setNumberFormat("0.00%");
-      // L = Cảnh báo (Đơn giản hóa để không bị #ERROR! do locale)
-      sheet.getRange(targetRow, 12).setFormula('=IF(J'+targetRow+'>F'+targetRow+',"TOT","CANH BAO")');
+      // L = Cảnh báo → sẽ được updateRowData ghi giá trị trực tiếp (không dùng formula để tránh lỗi locale)
     }
   }
 
@@ -352,8 +351,7 @@ function addNewProjectRow(sheet, tenDuAn, data) {
   sheet.getRange(row, 10).setFormula("=IFERROR(H" + row + "/G" + row + ")");
   sheet.getRange(row, 10).setNumberFormat("0.00%");
 
-  // L = Cảnh báo
-  sheet.getRange(row, 12).setFormula('=IF(J'+row+'="","",IF(J'+row+'>F'+row+',"TOT","CANH BAO"))');
+  // L = Cảnh báo → sẽ được updateRowData ghi giá trị trực tiếp (không dùng formula để tránh lỗi locale)
 
   Logger.log("✨ Thêm dự án mới '" + tenDuAn + "' tại dòng " + row);
   return row;
@@ -396,71 +394,57 @@ function updateRowData(sheet, row, data, isNew) {
     dNew = (typeof dCell === "number" && !isNaN(dCell)) ? dCell : 0;
   }
 
-  // 1. Cập nhật D nếu có override từ App (gửi kèm Lũy kế hôm qua)
-  if (data.lkHomQuaOverride) {
-    var overrideNum = parsePercent(String(data.lkHomQuaOverride));
-    if (overrideNum !== null) {
-      dNew = overrideNum;
-      overrideD = true;
-      sheet.getRange(row, 4).setValue(dNew);
-      sheet.getRange(row, 4).setNumberFormat("0.00%");
-      updated.push("D←override=" + (dNew * 100).toFixed(2) + "%");
-    }
-  }
-
-  // 2. Tính toán E
-  var lkHomNayStr = data.lkHomNay || "0%";
-  var lkHomNayNum = parsePercent(lkHomNayStr);
-
-  // Nếu không nhận diện được Lũy kế hôm nay (PDF), sử dụng % Hôm nay (PDF) (nếu có)
-  if (lkHomNayNum === null || lkHomNayNum === 0 || lkHomNayStr === "N/A" || lkHomNayStr === "0%" || lkHomNayStr === "") {
-    if (data.homNayPercent && data.homNayPercent !== "N/A") {
-      var pct = parsePercent(data.homNayPercent);
-      if (pct !== null) {
-        sheet.getRange(row, 5).setValue(pct);
-        sheet.getRange(row, 5).setNumberFormat("0.00%");
-        updated.push("E=" + data.homNayPercent + " (từ % Hôm nay gốc)");
-      }
-    }
-  } else {
-    // E = Lũy kế hôm nay (PDF) - Lũy kế hôm qua (D)
-    var homNayNum = lkHomNayNum - dNew;
-    sheet.getRange(row, 5).setValue(homNayNum);
-    sheet.getRange(row, 5).setNumberFormat("0.00%");
-    
-    if (overrideD) {
-      updated.push("E=" + (homNayNum * 100).toFixed(2) + "% [LK HN (PDF) - Override D]");
-    } else {
-      updated.push("E=" + (homNayNum * 100).toFixed(2) + "% [LK HN (PDF) - D]");
-    }
-  }
 
 
-  // ── Cột G: GT HĐ (tỷ) - CHỈ ghi nếu ô đang TRỐNG (không bao giờ overwrite) ──
+  // ── 2. Cập nhật G và H TRƯỚC để lấy căn cứ tính toán E ──
+  var finalG = sheet.getRange(row, 7).getValue();
   if (data.gtHopDong && data.gtHopDong !== "N/A") {
-    var currentG = sheet.getRange(row, 7).getValue();
-    var isEmpty  = (currentG === "" || currentG === null || currentG === 0 || !currentG);
-    if (isEmpty) {
+    var isEmptyG = (finalG === "" || finalG === null || finalG === 0 || !finalG);
+    if (isEmptyG) {
       var gtHD = parseNumber(data.gtHopDong);
       if (gtHD !== null && gtHD > 0) {
         sheet.getRange(row, 7).setValue(gtHD);
         sheet.getRange(row, 7).setNumberFormat("0.000");
+        finalG = gtHD;
         updated.push("G=" + gtHD + " (mới)");
       }
     } else {
-      updated.push("G=giữ nguyên " + currentG);
+      updated.push("G=giữ nguyên " + finalG);
     }
   }
 
-  // ── Cột H: GT Sản Lượng (tỷ) ──
+  var finalH = 0;
   if (data.gtSanLuong && data.gtSanLuong !== "N/A") {
     var gtSL = parseNumber(data.gtSanLuong);
     if (gtSL !== null) {
       sheet.getRange(row, 8).setValue(gtSL);
       sheet.getRange(row, 8).setNumberFormat("0.000");
+      finalH = gtSL;
       updated.push("H=" + gtSL);
     }
   }
+
+  // ── 3. Tính toán chính xác Cột E từ Cột H (SL) và Cột G (HĐ) ──
+  // Theo yêu cầu: "lấy GT sản lượng H so với GT hợp đồng G, mới tính toán ra cột E"
+  // ── E = H / G (% sản lượng so với hợp đồng trong ngày) ──
+  var homNayNum = null;
+  if (finalH > 0 && finalG > 0) {
+    homNayNum = finalH / finalG;
+    updated.push("E=" + (homNayNum * 100).toFixed(2) + "% [H/G = " + finalH + "/" + finalG + "]");
+  } else if (data.homNayPercent && data.homNayPercent !== "N/A") {
+    // Dự phòng nếu không có H hoặc G
+    homNayNum = parsePercent(data.homNayPercent);
+    if (homNayNum !== null) {
+      updated.push("E=" + data.homNayPercent + " (Dự phòng từ AI)");
+    }
+  }
+
+  if (homNayNum !== null) {
+    sheet.getRange(row, 5).setValue(homNayNum);
+    sheet.getRange(row, 5).setNumberFormat("0.00%");
+  }
+
+
 
   // ── Cột I: GT Nghiệm Thu (tỷ) ──
   if (data.gtNghiemThu && data.gtNghiemThu !== "N/A") {
@@ -490,6 +474,20 @@ function updateRowData(sheet, row, data, isNew) {
   if (data.ngayBaoCao && data.ngayBaoCao !== "N/A") {
     sheet.getRange(row, 11).setValue("'" + data.ngayBaoCao); // Ép định dạng Text
     updated.push("K=" + data.ngayBaoCao);
+  }
+
+  // ── Cột L: CẢNH BÁO (ghi giá trị trực tiếp, KHÔNG dùng formula để tránh lỗi locale) ──
+  var valJ = sheet.getRange(row, 10).getValue();
+  var valF = sheet.getRange(row, 6).getValue();
+  var isJValid = (typeof valJ === "number" && !isNaN(valJ) && valJ !== 0);
+  var isFValid = (typeof valF === "number" && !isNaN(valF));
+  if (isJValid && isFValid) {
+    var alertText = (valJ > valF) ? "TOT" : "CANH BAO";
+    sheet.getRange(row, 12).setValue(alertText);
+    updated.push("L=" + alertText);
+  } else {
+    sheet.getRange(row, 12).setValue(""); // J chưa có → để trống
+    updated.push("L=(trống - chờ J)");
   }
 
   return updated;
