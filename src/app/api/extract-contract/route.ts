@@ -83,25 +83,24 @@ CAC TRUONG CAN TRICH XUAT:
    - VỊ TRÍ ƯU TIÊN 2: Nếu tên file không có ngày, tìm trong văn bản chỗ nào có chữ "BÁO CÁO NGÀY", ngày tháng báo cáo sẽ nằm ngay cạnh hoặc phía dưới dòng chữ đó.
    - VỊ TRÍ ƯU TIÊN 3: Dòng chứa cụm từ "Công việc thực hiện ngày: ..." hoặc "Ngày báo cáo: ...".
    - VỊ TRÍ ƯU TIÊN 4: Bất kỳ chỗ nào có định dạng ngày tháng năm (d/m/y) ở 1/3 đầu trang.
-   - LƯU Ý QUAN TRỌNG: Ngày tháng có thể bị lỗi OCR thành "5 / 4 / 2026", hãy thông minh ghép lại.
-   - LƯU Ý VỀ ĐẢO LỘN: BẮT BUỘC dựa vào tháng hiện tại là THÁNG ${currentMonth} NĂM ${currentYear}.
-     * Ví dụ: Nếu thấy "4/5/2026" mà hiện tại là tháng 4, thì đó là ngày 5 tháng 4. AI phải ưu tiên chọn ngày gần với hôm nay nhất.
-   - Định dạng kết quả TRẢ VỀ: DD/MM/YYYY (Ví dụ: "04/04/2026"). Không được để trống.
+   - LƯU Ý QUAN TRỌNG: Ngày tháng có thể bị lỗi OCR (viết dính chữ hoặc thừa khoảng trắng), hãy thông minh ghép lại cho đúng.
+   - LƯU Ý VỀ ĐẢO LỘN NGÀY VÀ THÁNG: BẮT BUỘC dựa vào tháng hiện tại là THÁNG ${currentMonth} NĂM ${currentYear}.
+     * AI phải ưu tiên chọn ngày hợp lý gần với hôm nay nhất nếu định dạng ngày/tháng bị đảo lộn. Dù văn bản viết thế nào cũng phải tự suy luận ra đúng Ngày/Tháng.
+   - Định dạng kết quả TRẢ VỀ: DD/MM/YYYY. Tuyệt đối không được để trống. Lấy chính xác ngày đang báo cáo.
 
 2. "tenDuAn": Ten du an / cong trinh - LAY DAY DU, CHINH XAC.
    - Tim o truong "Du an:" trong phan thong tin du an o dau trang PDF (o header hoac phan mo dau)
    - Vi du trong PDF: "Du an: Nha may dien mat troi Tra Vinh - Giai doan 2" → lay "Nha may dien mat troi Tra Vinh - Giai doan 2"
    - KHONG rut gon, KHONG viet tat (KHONG lay "Tra Vinh", KHONG lay "XLNT" thay cho ten day du)
-   - Giu nguyen ky tu dac biet, dau gach ngang, so thu tu giai doan
    - Neu khong tim thay truong "Du an:" -> lay ten o tieu de bao cao (dong dau trang)
    - QUAN TRONG: Cung 1 du an phai cho ra CUNG 1 TEN giong het nhau qua moi ngay bao cao
 
 3. "lkHomNay": % San luong LUY KE den HOM NAY (TUYET DOI QUAN TRONG).
-   - TH1: PDF co cot % -> Lay truc tiep tu o % cua dong "San luong". VD: "28.61%".
-   - TH2: PDF KHONG CO COT % (Dự án Thường Phước) -> AI BAT BUOC TU TINH:
+   - TH1: PDF co cot % -> Lay truc tiep tu o % cua dong "San luong".
+   - TH2: PDF KHONG CO COT % -> AI BAT BUOC TU TINH:
      + Cong thuc: lkHomNay = (San luong tam tinh / Gia tri Hop dong) * 100
-     + Ví dụ: San luong 1,301,167,585 và GT Hợp đồng 95,092,891,627
-     + -> (1301167585 / 95092891627) * 100 = 1.368% -> Tra ve "1.368%"
+     + Lấy 3 chữ số thập phân nếu lẻ.
+     + TUYỆT ĐỐI đọc số chuẩn xác từ file PDF, không được bịa thông số. Điền thêm ký hiệu "%" vào đuôi kết quả (VD: "X.XXX%").
    - Neu San luong = 0 hoac "-" -> "0%"
  
 4. "homNayPercent": % tien do THI CONG THEM trong ngay hom nay (delta trong ngay).
@@ -112,23 +111,21 @@ CAC TRUONG CAN TRICH XUAT:
 5. "gtHopDong": Gia tri hop dong (ty dong) - CO DINH.
    - Tim o dóng "Gia tri Hop dong" trong bảng hoac DOC TỪ ĐỈNH CỘT TRONG BIỂU ĐỒ SẢN LƯỢNG.
    - HUONG DAN CHUYEN DOI SANG TY DONG (Bat Buoc):
-     + Buoc 1: Lay day du day so (VD: 95,092,891,627 hoac 568,791,724,932).
-     + Buoc 2: Loai bo ky tu phan cach để lay so nguyen (VD: 95092891627).
+     + Buoc 1: Lay day du day so trong file.
+     + Buoc 2: Loai bo ky tu phan cach để lay so nguyen.
      + Buoc 3: CHIA cho 1,000,000,000 de ra ty dong. Lay 3 so thap phan.
-     + VD 1: 568,791,724,932 -> chia 1 ty -> 568.792
-     + VD 2: 95,092,891,627 -> chia 1 ty -> 95.093
+     + VD: 1,000,000,000 -> chia 1 ty -> 1.000
    - YEU CAU: KHONG DUOC DE TRONG, phai ra so.
  
 6. "gtSanLuong": Gia tri san luong (ty dong).
    - Tim o "San luong tam tinh" hoac DOC TỪ ĐỈNH CỘT THỨ 2 TRONG BIỂU ĐỒ SẢN LƯỢNG.
-   - CHUYEN DOI TUONG TU SANG TY DONG: Chia cho 1,000,000,000.
-   - VD 1: 14,466,933,782 -> chia 1 ty -> 14.467
-   - VD 2: 1,301,167,585  -> chia 1 ty -> 1.301
+   - CHUYEN DOI TUONG TU SANG TY DONG: Chia cho 1,000,000,000 tương tự như trên.
+   - TUYỆT ĐỐI không được copy ví dụ, phải đọc đúng số trên PDF rồi chia 1 tỷ.
    - Neu bang "-" hoac trong -> "0"
  
 7. "gtConLai": Gia tri con lai (ty dong).
    - Tim o dong "Gia tri con lai" hoac DOC TỪ ĐỈNH CỘT THỨ 3 TRONG BIỂU ĐỒ.
-   - Chuyen doi chia 1 ty: VD: 554,324,791,150 -> 554.325 | 93,791,724,042 -> 93.792
+   - Chuyen doi chia 1 ty. Lấy 3 chữ số thập phân.
    - Neu khong co -> "N/A"
 
 8. "gtNghiemThu": Gia tri nghiem thu (ty dong).
