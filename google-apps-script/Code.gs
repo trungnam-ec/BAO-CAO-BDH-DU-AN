@@ -13,9 +13,10 @@
  *   H = GT SẢN LƯỢNG    → CẬP NHẬT TỪ APP
  *   I = GT NGHIỆM THU   → CẬP NHẬT TỪ APP
  *   J = % SL/HĐ         → CÔNG THỨC =H/G
- *   K = CẢNH BÁO        → CÔNG THỨC
- *   L = CÔNG VIỆC NGÀY  → CẬP NHẬT TỪ APP
- *   M = VƯỚNG MẮC       → CẬP NHẬT TỪ APP
+ *   K = NGÀY BÁO CÁO    → CẬP NHẬT TỪ APP
+ *   L = CẢNH BÁO        → CÔNG THỨC
+ *   M = CÔNG VIỆC NGÀY  → CẬP NHẬT TỪ APP
+ *   N = VƯỚNG MẮC       → CẬP NHẬT TỪ APP
  */
 
 var HEADER_ROW  = 2;     // Dòng tiêu đề cột
@@ -126,6 +127,8 @@ function handleUpdateBaoCao(data) {
       sheet.getRange(targetRow, 6).setNumberFormat("0.00%");
       sheet.getRange(targetRow, 10).setFormula("=IFERROR(H" + targetRow + "/G" + targetRow + ")");
       sheet.getRange(targetRow, 10).setNumberFormat("0.00%");
+      // L = Cảnh báo
+      sheet.getRange(targetRow, 12).setFormula('=IF(J'+targetRow+'="","",IF(J'+targetRow+'>F'+targetRow+',"TOT","CANH BAO"))');
     }
   }
 
@@ -349,6 +352,9 @@ function addNewProjectRow(sheet, tenDuAn, data) {
   sheet.getRange(row, 10).setFormula("=IFERROR(H" + row + "/G" + row + ")");
   sheet.getRange(row, 10).setNumberFormat("0.00%");
 
+  // L = Cảnh báo
+  sheet.getRange(row, 12).setFormula('=IF(J'+row+'="","",IF(J'+row+'>F'+row+',"TOT","CANH BAO"))');
+
   Logger.log("✨ Thêm dự án mới '" + tenDuAn + "' tại dòng " + row);
   return row;
 }
@@ -480,10 +486,10 @@ function updateRowData(sheet, row, data, isNew) {
     updated.push("N=vuong mac");
   }
 
-  // ── Cột L: NGÀY BÁO CÁO (cột 12) ──
+  // ── Cột K: NGÀY BÁO CÁO (cột 11) ──
   if (data.ngayBaoCao && data.ngayBaoCao !== "N/A") {
-    sheet.getRange(row, 12).setValue("'" + data.ngayBaoCao); // Ép định dạng Text
-    updated.push("L=" + data.ngayBaoCao);
+    sheet.getRange(row, 11).setValue("'" + data.ngayBaoCao); // Ép định dạng Text
+    updated.push("K=" + data.ngayBaoCao);
   }
 
   return updated;

@@ -14,18 +14,23 @@
  *   H = GT SẢN LƯỢNG (tỷ)
  *   I = GT NGHIỆM THU (tỷ)
  *   J = % SL/HĐ - CÔNG THỨC: =H/G
- *   K = CẢNH BÁO - CÔNG THỨC tự động
- *   L = CÔNG VIỆC TRONG NGÀY - Thủ công
- *   M = VƯỚNG MẮC - Thủ công
+ *   K = NGÀY THÁNG - Nhập từ App
+ *   L = CẢNH BÁO - CÔNG THỨC tự động
+ *   M = CÔNG VIỆC TRONG NGÀY - Thủ công
+ *   N = VƯỚNG MẮC - Thủ công
  */
 
 function setupFormulas() {
 
 
-  // Cập nhật phạm vi dữ liệu để bao gồm cột mới
-
-
-  // ... (rest of code unchanged, but replace later usages of 15 with 16 where needed)
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("NHAP LIEU");
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert("Lỗi: Không tìm thấy sheet NHAP LIEU");
+    return;
+  }
+  
+  var allData = sheet.getDataRange().getValues();
 
   
   // Tìm các dòng dữ liệu dự án (có nội dung ở cột B và không phải header)
@@ -92,27 +97,12 @@ function setupFormulas() {
     var cellJ = sheet.getRange(r, 10); // Cột J = index 10
     cellJ.setFormula('=IF(G' + r + '=0,"",H' + r + '/G' + r + ')');
     cellJ.setNumberFormat("0.00%");
+    // Cột L: Cảnh báo dựa trên J và F (Dùng setFormula gắt gao nhất không khoảng trắng y hệt cột J)
+    var cellL = sheet.getRange(r, 12); // Cột L = index 12
+    cellL.setFormula('=IF(J'+r+'="","",IF(J'+r+'>F'+r+',"TOT","CANH BAO"))');
     
-    // Cột K (bây giờ là cột 12) = CẢNH BÁO - tự động
-
-    var rules = [];
-    var greenRule = SpreadsheetApp.newConditionalFormatRule()
-      .whenTextEqualTo('✔')
-      .setBackground('#C6EFCE') // xanh nhạt
-      .setRanges([rangeAlert])
-      .build();
-    var redRule = SpreadsheetApp.newConditionalFormatRule()
-      .whenTextEqualTo('❌')
-      .setBackground('#FFC7CE') // đỏ nhạt
-      .setRanges([rangeAlert])
-      .build();
-    var yellowRule = SpreadsheetApp.newConditionalFormatRule()
-      .whenTextEqualTo('⚠')
-      .setBackground('#FFEB9C') // vàng nhạt
-      .setRanges([rangeAlert])
-      .build();
-    rules = [greenRule, redRule, yellowRule];
-    sheet.setConditionalFormatRules(rules);
+    // Xóa việc set conditional formatting trong mỗi vòng lặp ở đây.
+    // Việc apply Conditional Formatting sẽ được thực hiện 1 lần duy nhất cho toàn cột L ở phía dưới (Bước 4)
 
     
     formulasApplied++;
@@ -167,9 +157,42 @@ function setupFormulas() {
     sheet.getRange(firstR, 6, lastR - firstR + 1, 1)
       .setBackground("#DBEAFE");
     
-    // Cột J, K → xanh nhạt (công thức)  
-    sheet.getRange(firstR, 10, lastR - firstR + 1, 2)
-      .setBackground("#DBEAFE");
+    // Cột L → Định dạng có điều kiện CẢNH BÁO
+    var rangeAlert = sheet.getRange(firstR, 12, lastR - firstR + 1, 1);
+    
+    // Lấy các conditional format hiện có, lọc bỏ các format cũ thuộc cột L để cài lại
+    var existingRules = sheet.getConditionalFormatRules();
+    var newRules = [];
+    for (var i = 0; i < existingRules.length; i++) {
+      var rule = existingRules[i];
+      var ruleRanges = rule.getRanges();
+      var appliesToL = false;
+      for (var j = 0; j < ruleRanges.length; j++) {
+        if (ruleRanges[j].getColumn() === 12) { appliesToL = true; break; }
+      }
+      if (!appliesToL) newRules.push(rule);
+    }
+    
+    var greenRule = SpreadsheetApp.newConditionalFormatRule()
+      .whenTextEqualTo('TOT')
+      .setBackground('#C6EFCE')
+      .setRanges([rangeAlert])
+      .build();
+      
+    var redRule = SpreadsheetApp.newConditionalFormatRule()
+      .whenTextEqualTo('CANH BAO')
+      .setBackground('#FFC7CE')
+      .setRanges([rangeAlert])
+      .build();
+      
+    var yellowRule = SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=NOT(ISNUMBER($J' + firstR + '))') // J trống hoặc lỗi
+      .setBackground('#FFEB9C')
+      .setRanges([rangeAlert])
+      .build();
+      
+    newRules.push(greenRule, redRule, yellowRule);
+    sheet.setConditionalFormatRules(newRules);
   }
   
   // ─── BƯỚC 5: THÔNG BÁO KẾT QUẢ ───────────────────────────────────────────
@@ -181,11 +204,11 @@ function setupFormulas() {
     + "Công thức đã cài:\n"
     + "  • Cột F = D + E (Lũy kế hôm nay)\n"
     + "  • Cột J = H / G (% Sản lượng / Hợp đồng)\n"
-    + "  • Cột K = Cảnh báo tự động\n"
+    + "  • Cột L = Cảnh báo tự động\n"
     + "  • Dòng Tổng = SUM/AVERAGE tương ứng\n\n"
     + "MÀU SẮC:\n"
     + "  • Vàng (FFFF99) = Nhập tay hàng ngày (D, E)\n"
-    + "  • Xanh nhạt (DBEAFE) = Công thức tự tính (F, J, K)";
+    + "  • Xanh nhạt (DBEAFE) = Công thức tự tính (F, J, L)";
   
   SpreadsheetApp.getUi().alert(msg);
   Logger.log(msg);

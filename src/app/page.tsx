@@ -129,6 +129,7 @@ export default function Home() {
         formData.append("model", selectedModel);
         pageImages.forEach((img, idx) => formData.append(`image_page_${idx + 1}`, img));
         formData.append("total_pages_sent", String(pageImages.length));
+        formData.append("filename", file.name); // LUÔN LUÔN gửi tên file để AI đọc ngày
         if (pageImages.length === 0) formData.append("file", file);
 
         const response = await fetch("/api/extract-contract", {

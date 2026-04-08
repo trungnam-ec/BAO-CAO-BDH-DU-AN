@@ -11,6 +11,8 @@ export async function POST(request: Request) {
         const modelFromHeader = request.headers.get('x-model');
         const modelFromForm = formData.get('model') as string;
         const overrideModel = modelFromHeader || modelFromForm || 'gpt-4o';
+        const fileNameFromForm = formData.get('filename') as string;
+        const fileName = fileNameFromForm || (file ? file.name : "Không rõ tên file");
 
         if (!apiKey) {
             return NextResponse.json({ error: 'Thieu API key. Vao Settings de cau hinh.' }, { status: 400 });
@@ -66,6 +68,8 @@ export async function POST(request: Request) {
         const systemPrompt = `Ban la chuyen gia doc BAO CAO TIEN DO THI CONG HANG NGAY cua cong ty xay dung Viet Nam (TNEC / TRUNG NAM E&C).
 Nhiem vu: Trich xuat CHINH XAC cac thong tin tu bao cao ngay thi cong. THOI GIAN HIEN TAI (LUC UPLOAD BAC CAO NAY) LA THANG ${currentMonth} NAM ${currentYear}.
 
+TÊN FILE PDF ĐANG XỬ LÝ: "${fileName}"
+
 MAU BAO CAO CO CAU TRUC:
 - Tieu de: "BAO CAO NGAY" + ngay thang nam o giua trang
 - Ben phai: bang gia tri hop dong, San luong (so tien + %), Gia tri con lai (%)
@@ -75,13 +79,14 @@ MAU BAO CAO CO CAU TRUC:
 CAC TRUONG CAN TRICH XUAT:
 
 1. "ngayBaoCao": Ngày của báo cáo này (BẮT BUỘC PHẢI CÓ).
-   - VỊ TRÍ ƯU TIÊN 1: Dòng ngay phía dưới chữ "BÁO CÁO NGÀY" ở đầu trang.
-   - VỊ TRÍ ƯU TIÊN 2: Dòng chứa cụm từ "Công việc thực hiện ngày: ..." hoặc "Ngày báo cáo: ...".
-   - VỊ TRÍ ƯU TIÊN 3: Bất kỳ chỗ nào có định dạng ngày tháng năm (d/m/y) ở 1/3 đầu trang.
-   - LƯU Ý QUAN TRỌNG: Ngày tháng có thể bị OCR lỗi thành "5 / 4 / 2026" (có khoảng trắng) hoặc "05 . 04 . 2026". Hãy thông minh để ghép lại.
+   - VỊ TRÍ ƯU TIÊN 1: Đọc từ TÊN FILE PDF ("${fileName}") trước tiên. Nếu tên file có chứa ngày tháng (Ví dụ: "BÁO CÁO NGÀY_04.4.2026.pdf" -> 04/04/2026), hãy lấy ngay ngày đó làm kết quả.
+   - VỊ TRÍ ƯU TIÊN 2: Nếu tên file không có ngày, tìm trong văn bản chỗ nào có chữ "BÁO CÁO NGÀY", ngày tháng báo cáo sẽ nằm ngay cạnh hoặc phía dưới dòng chữ đó.
+   - VỊ TRÍ ƯU TIÊN 3: Dòng chứa cụm từ "Công việc thực hiện ngày: ..." hoặc "Ngày báo cáo: ...".
+   - VỊ TRÍ ƯU TIÊN 4: Bất kỳ chỗ nào có định dạng ngày tháng năm (d/m/y) ở 1/3 đầu trang.
+   - LƯU Ý QUAN TRỌNG: Ngày tháng có thể bị lỗi OCR thành "5 / 4 / 2026", hãy thông minh ghép lại.
    - LƯU Ý VỀ ĐẢO LỘN: BẮT BUỘC dựa vào tháng hiện tại là THÁNG ${currentMonth} NĂM ${currentYear}.
-     * Ví dụ: Nếu thấy "4/5/2026" mà hiện tại là tháng 4, thì đó là ngày 5 tháng 4. Nếu hiện tại là tháng 5, thì đó là ngày 4 tháng 5. AI phải ưu tiên chọn ngày gần với hôm nay nhất.
-   - Định dạng kết quả TRẢ VỀ: DD/MM/YYYY (Ví dụ: "05/04/2026"). Không được để trống hoặc trả về "N/A" nếu có bất kỳ dấu hiệu ngày tháng nào.
+     * Ví dụ: Nếu thấy "4/5/2026" mà hiện tại là tháng 4, thì đó là ngày 5 tháng 4. AI phải ưu tiên chọn ngày gần với hôm nay nhất.
+   - Định dạng kết quả TRẢ VỀ: DD/MM/YYYY (Ví dụ: "04/04/2026"). Không được để trống.
 
 2. "tenDuAn": Ten du an / cong trinh - LAY DAY DU, CHINH XAC.
    - Tim o truong "Du an:" trong phan thong tin du an o dau trang PDF (o header hoac phan mo dau)
