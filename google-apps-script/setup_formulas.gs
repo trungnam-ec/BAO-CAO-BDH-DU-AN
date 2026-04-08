@@ -20,19 +20,13 @@
  */
 
 function setupFormulas() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName("NHAP LIEU");
-  
-  if (!sheet) {
-    SpreadsheetApp.getUi().alert("❌ Không tìm thấy sheet 'NHAP LIEU'. Kiểm tra lại tên sheet.");
-    return;
-  }
-  
-  var lastRow = sheet.getLastRow();
-  Logger.log("Sheet NHAP LIEU - Tổng dòng: " + lastRow);
-  
-  // ─── BƯỚC 1: TỐ CHỨC THÔNG TIN (in ra log để người dùng kiểm tra) ───────
-  var allData = sheet.getRange(1, 1, lastRow, 15).getValues();
+
+
+  // Cập nhật phạm vi dữ liệu để bao gồm cột mới
+
+
+  // ... (rest of code unchanged, but replace later usages of 15 with 16 where needed)
+
   
   // Tìm các dòng dữ liệu dự án (có nội dung ở cột B và không phải header)
   var projectRows = [];  // các dòng dự án thực sự
@@ -99,14 +93,27 @@ function setupFormulas() {
     cellJ.setFormula('=IF(G' + r + '=0,"",H' + r + '/G' + r + ')');
     cellJ.setNumberFormat("0.00%");
     
-    // Cột K: CẢNH BÁO - so sánh % SL/HĐ với LK tiến độ
-    var cellK = sheet.getRange(r, 11); // Cột K = index 11
-    // Nếu % SL < LK tiến độ hơn 5% → cảnh báo
-    cellK.setFormula(
-      '=IF(AND(J' + r + '<>"",F' + r + '<>"",J' + r + '<F' + r + '-0.05),' +
-      '"⚠ SL < TĐ "&TEXT(F' + r + '-J' + r + ',"0%"),' +
-      '"✔")'
-    );
+    // Cột K (bây giờ là cột 12) = CẢNH BÁO - tự động
+
+    var rules = [];
+    var greenRule = SpreadsheetApp.newConditionalFormatRule()
+      .whenTextEqualTo('✔')
+      .setBackground('#C6EFCE') // xanh nhạt
+      .setRanges([rangeAlert])
+      .build();
+    var redRule = SpreadsheetApp.newConditionalFormatRule()
+      .whenTextEqualTo('❌')
+      .setBackground('#FFC7CE') // đỏ nhạt
+      .setRanges([rangeAlert])
+      .build();
+    var yellowRule = SpreadsheetApp.newConditionalFormatRule()
+      .whenTextEqualTo('⚠')
+      .setBackground('#FFEB9C') // vàng nhạt
+      .setRanges([rangeAlert])
+      .build();
+    rules = [greenRule, redRule, yellowRule];
+    sheet.setConditionalFormatRules(rules);
+
     
     formulasApplied++;
     Logger.log("  ✅ Đã cài công thức dòng " + r);

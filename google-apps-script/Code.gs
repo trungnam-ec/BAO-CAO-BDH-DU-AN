@@ -64,11 +64,25 @@ function handleUpdateBaoCao(data) {
     rows.push(targetRow);
     isNew = true;
   } else {
+    // Helper to normalize dates to dd/MM/yyyy string
+    function normalizeDate(dateStr) {
+      if (!dateStr) return '';
+      // Try parsing as Date object (handles ISO, etc.)
+      var d = new Date(dateStr);
+      if (!isNaN(d.getTime())) {
+        return Utilities.formatDate(d, Session.getScriptTimeZone(), 'dd/MM/yyyy');
+      }
+      // If already in expected format, just trim
+      return dateStr.trim();
+    }
+
     // Đã có dự án → Tìm xem ngày này đã có chưa
     var foundIndex = -1;
+    var normalizedIncoming = normalizeDate(incomingDate);
     for (var i = 0; i < rows.length; i++) {
-      var dateSheet = String(sheet.getRange(rows[i], 11).getDisplayValue()).trim();
-      if (dateSheet === incomingDate && incomingDate !== "") {
+      var dateSheetRaw = String(sheet.getRange(rows[i], 11).getDisplayValue()).trim();
+      var dateSheet = normalizeDate(dateSheetRaw);
+      if (normalizedIncoming && normalizedIncoming === dateSheet) {
         targetRow = rows[i];
         foundIndex = i;
         break;
@@ -84,14 +98,13 @@ function handleUpdateBaoCao(data) {
       // Update mảng rows (nếu insert dòng bên dưới tất cả các dòng cũ thì ko làm thay đổi index các dòng cũ)
       rows.push(targetRow);
 
-      // Cột K: Ngày cập nhật (hoặc Ngày báo cáo)
-      if (incomingDate && incomingDate !== "N/A") {
-        sheet.getRange(targetRow, 11).setValue("'" + incomingDate); // Ép định dạng Text để không bị lật ngày tháng
-      } else {
+      // Cột K: Ngày cập nhật (hoặc Ngày báo cáo) – ghi dưới dạng chuẩn dd/MM/yyyy
+      var dateToWrite = normalizedIncoming;
+      if (!dateToWrite) {
         var now = new Date();
-        var dateStr = ('0' + now.getDate()).slice(-2) + '/' + ('0' + (now.getMonth() + 1)).slice(-2) + '/' + now.getFullYear();
-        sheet.getRange(targetRow, 11).setValue("'" + dateStr);
+        dateToWrite = Utilities.formatDate(now, Session.getScriptTimeZone(), 'dd/MM/yyyy');
       }
+      sheet.getRange(targetRow, 11).setValue("'" + dateToWrite); // ép định dạng Text
 
       // Copy thông tin cố định (STT, Tên, KH, GT Hợp đồng)
       sheet.getRange(targetRow, 1).setValue(sheet.getRange(lastR, 1).getValue());
@@ -453,24 +466,24 @@ function updateRowData(sheet, row, data, isNew) {
     }
   }
 
-  // ── Cột L: Công việc trong ngày ──
+  // ── Cột M: Công việc trong ngày (đã dịch sang cột 13) ──
   if (data.congViecTrongNgay && data.congViecTrongNgay !== "N/A") {
-    sheet.getRange(row, 12).setValue(data.congViecTrongNgay);
-    sheet.getRange(row, 12).setWrap(true);
-    updated.push("L=cong viec ngay");
-  }
-
-  // ── Cột M: Vướng mắc ──
-  if (data.vuongMac && data.vuongMac !== "N/A" && data.vuongMac !== "Không có") {
-    sheet.getRange(row, 13).setValue(data.vuongMac);
+    sheet.getRange(row, 13).setValue(data.congViecTrongNgay);
     sheet.getRange(row, 13).setWrap(true);
-    updated.push("M=vuong mac");
+    updated.push("M=cong viec ngay");
   }
 
-  // ── Cột K: NGÀY BÁO CÁO (user đổi tên từ "Cảnh Báo") ──
+  // ── Cột N: Vướng mắc (đã dịch sang cột 14) ──
+  if (data.vuongMac && data.vuongMac !== "N/A" && data.vuongMac !== "Không có") {
+    sheet.getRange(row, 14).setValue(data.vuongMac);
+    sheet.getRange(row, 14).setWrap(true);
+    updated.push("N=vuong mac");
+  }
+
+  // ── Cột L: NGÀY BÁO CÁO (cột 12) ──
   if (data.ngayBaoCao && data.ngayBaoCao !== "N/A") {
-    sheet.getRange(row, 11).setValue("'" + data.ngayBaoCao); // Ép định dạng Text
-    updated.push("K=" + data.ngayBaoCao);
+    sheet.getRange(row, 12).setValue("'" + data.ngayBaoCao); // Ép định dạng Text
+    updated.push("L=" + data.ngayBaoCao);
   }
 
   return updated;
