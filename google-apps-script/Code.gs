@@ -113,21 +113,21 @@ function handleUpdateBaoCao(data) {
       sheet.getRange(targetRow, 3).setValue(sheet.getRange(lastR, 3).getValue());
       sheet.getRange(targetRow, 3).setNumberFormat("0%");
       
-      // Auto-roll: Lũy kế hôm qua (Cột D dòng mới) = Lũy kế hôm nay (Cột F dòng cũ)
-      var prevF = sheet.getRange(lastR, 6).getValue();
-      var prevFNum = (typeof prevF === "number" && !isNaN(prevF)) ? prevF : 0;
-      sheet.getRange(targetRow, 4).setValue(prevFNum);
+      // Auto-roll: D dòng mới = CÔNG THỨC tham chiếu F dòng cũ (để tự cập nhật khi F thay đổi)
+      sheet.getRange(targetRow, 4).setFormula("=F" + lastR);
       sheet.getRange(targetRow, 4).setNumberFormat("0.00%");
       
       sheet.getRange(targetRow, 7).setValue(sheet.getRange(lastR, 7).getValue());
       sheet.getRange(targetRow, 7).setNumberFormat("#,##0.000");
 
-      // Set công thức (công thức D+E để tính lũy kế, tránh #VALUE! khi có ô trống)
+      // F = D + E
       sheet.getRange(targetRow, 6).setFormula("=D" + targetRow + "+E" + targetRow);
       sheet.getRange(targetRow, 6).setNumberFormat("0.00%");
+      // J = H/G
       sheet.getRange(targetRow, 10).setFormula("=IFERROR(H" + targetRow + "/G" + targetRow + ")");
       sheet.getRange(targetRow, 10).setNumberFormat("0.00%");
-      // L = Cảnh báo → sẽ được updateRowData ghi giá trị trực tiếp (không dùng formula để tránh lỗi locale)
+      // L = Cảnh báo (công thức để tự cập nhật khi J hoặc F thay đổi)
+      sheet.getRange(targetRow, 12).setFormula('=IF(ISNUMBER(J'+targetRow+'),IF(J'+targetRow+'>F'+targetRow+',"TOT","CANH BAO"),"")');
     }
   }
 
@@ -351,7 +351,8 @@ function addNewProjectRow(sheet, tenDuAn, data) {
   sheet.getRange(row, 10).setFormula("=IFERROR(H" + row + "/G" + row + ")");
   sheet.getRange(row, 10).setNumberFormat("0.00%");
 
-  // L = Cảnh báo → sẽ được updateRowData ghi giá trị trực tiếp (không dùng formula để tránh lỗi locale)
+  // L = Cảnh báo (công thức để tự cập nhật)
+  sheet.getRange(row, 12).setFormula('=IF(ISNUMBER(J'+row+'),IF(J'+row+'>F'+row+',"TOT","CANH BAO"),"")');
 
   Logger.log("✨ Thêm dự án mới '" + tenDuAn + "' tại dòng " + row);
   return row;
@@ -476,19 +477,9 @@ function updateRowData(sheet, row, data, isNew) {
     updated.push("K=" + data.ngayBaoCao);
   }
 
-  // ── Cột L: CẢNH BÁO (ghi giá trị trực tiếp, KHÔNG dùng formula để tránh lỗi locale) ──
-  var valJ = sheet.getRange(row, 10).getValue();
-  var valF = sheet.getRange(row, 6).getValue();
-  var isJValid = (typeof valJ === "number" && !isNaN(valJ) && valJ !== 0);
-  var isFValid = (typeof valF === "number" && !isNaN(valF));
-  if (isJValid && isFValid) {
-    var alertText = (valJ > valF) ? "TOT" : "CANH BAO";
-    sheet.getRange(row, 12).setValue(alertText);
-    updated.push("L=" + alertText);
-  } else {
-    sheet.getRange(row, 12).setValue(""); // J chưa có → để trống
-    updated.push("L=(trống - chờ J)");
-  }
+  // ── Cột L: CẢNH BÁO (công thức để tự cập nhật khi J hoặc F thay đổi) ──
+  sheet.getRange(row, 12).setFormula('=IF(ISNUMBER(J'+row+'),IF(J'+row+'>F'+row+',"TOT","CANH BAO"),"")');
+  updated.push("L=formula");
 
   return updated;
 }

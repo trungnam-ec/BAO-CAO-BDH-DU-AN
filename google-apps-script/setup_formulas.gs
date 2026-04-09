@@ -97,16 +97,8 @@ function setupFormulas() {
     var cellJ = sheet.getRange(r, 10); // Cột J = index 10
     cellJ.setFormula('=IF(G' + r + '=0,"",H' + r + '/G' + r + ')');
     cellJ.setNumberFormat("0.00%");
-    // Cột L: Cảnh báo - GHI GIÁ TRỊ TRỰC TIẾP (không dùng formula để tránh lỗi locale)
-    var valJ = sheet.getRange(r, 10).getValue();
-    var valF = sheet.getRange(r, 6).getValue();
-    var isJOk = (typeof valJ === "number" && !isNaN(valJ) && valJ !== 0);
-    var isFOk = (typeof valF === "number" && !isNaN(valF));
-    if (isJOk && isFOk) {
-      sheet.getRange(r, 12).setValue(valJ > valF ? "TOT" : "CANH BAO");
-    } else {
-      sheet.getRange(r, 12).setValue("");
-    }
+    // Cột L: Cảnh báo - CÔNG THỨC để tự cập nhật khi J hoặc F thay đổi
+    sheet.getRange(r, 12).setFormula('=IF(ISNUMBER(J'+r+'),IF(J'+r+'>F'+r+',"TOT","CANH BAO"),"")');
     
     // Xóa việc set conditional formatting trong mỗi vòng lặp ở đây.
     // Việc apply Conditional Formatting sẽ được thực hiện 1 lần duy nhất cho toàn cột L ở phía dưới (Bước 4)
