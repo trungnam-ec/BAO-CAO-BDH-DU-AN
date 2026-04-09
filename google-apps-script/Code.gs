@@ -126,8 +126,7 @@ function handleUpdateBaoCao(data) {
       // J = H/G
       sheet.getRange(targetRow, 10).setFormula("=IFERROR(H" + targetRow + "/G" + targetRow + ")");
       sheet.getRange(targetRow, 10).setNumberFormat("0.00%");
-      // L = Cảnh báo (công thức để tự cập nhật khi J hoặc F thay đổi)
-      sheet.getRange(targetRow, 12).setFormula('=IF(ISNUMBER(J'+targetRow+'),IF(J'+targetRow+'>F'+targetRow+',"TOT","CANH BAO"),"")');
+      // L = Cảnh báo → updateRowData sẽ ghi giá trị, onEdit trigger sẽ cập nhật khi sửa tay
     }
   }
 
@@ -351,8 +350,7 @@ function addNewProjectRow(sheet, tenDuAn, data) {
   sheet.getRange(row, 10).setFormula("=IFERROR(H" + row + "/G" + row + ")");
   sheet.getRange(row, 10).setNumberFormat("0.00%");
 
-  // L = Cảnh báo (công thức để tự cập nhật)
-  sheet.getRange(row, 12).setFormula('=IF(ISNUMBER(J'+row+'),IF(J'+row+'>F'+row+',"TOT","CANH BAO"),"")');
+  // L = Cảnh báo → updateRowData sẽ ghi giá trị, onEdit trigger sẽ cập nhật khi sửa tay
 
   Logger.log("✨ Thêm dự án mới '" + tenDuAn + "' tại dòng " + row);
   return row;
@@ -477,11 +475,64 @@ function updateRowData(sheet, row, data, isNew) {
     updated.push("K=" + data.ngayBaoCao);
   }
 
-  // ── Cột L: CẢNH BÁO (công thức để tự cập nhật khi J hoặc F thay đổi) ──
-  sheet.getRange(row, 12).setFormula('=IF(ISNUMBER(J'+row+'),IF(J'+row+'>F'+row+',"TOT","CANH BAO"),"")');
-  updated.push("L=formula");
+  // ── Cột L: CẢNH BÁO (ghi giá trị trực tiếp - onEdit trigger sẽ cập nhật khi sửa tay) ──
+  recalcColumnL(sheet, row);
+  updated.push("L=updated");
 
   return updated;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CỘT L: HÀM TÍNH + TRIGGER TỰ ĐỘNG
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Tính và ghi giá trị cột L cho 1 dòng cụ thể
+ */
+function recalcColumnL(sheet, row) {
+  var valJ = sheet.getRange(row, 10).getValue();
+  var valF = sheet.getRange(row, 6).getValue();
+  var isJOk = (typeof valJ === "number" && !isNaN(valJ) && valJ !== 0);
+  var isFOk = (typeof valF === "number" && !isNaN(valF));
+  if (isJOk && isFOk) {
+    sheet.getRange(row, 12).setValue(valJ > valF ? "TOT" : "CANH BAO");
+  } else {
+    sheet.getRange(row, 12).setValue("");
+  }
+}
+
+/**
+ * onEdit trigger: Khi người dùng sửa tay bất kỳ cột nào liên quan (D, E, G, H),
+ * tự động tính lại cột L cho TẤT CẢ các dòng dữ liệu.
+ * Lý do quét tất cả: Sửa D ở ngày trước → F thay đổi → D ngày sau thay đổi (formula)
+ * → F ngày sau thay đổi → L cần cập nhật theo chuỗi domino.
+ */
+function onEdit(e) {
+  try {
+    var sheet = e.source.getActiveSheet();
+    if (sheet.getName() !== "NHAP LIEU") return;
+    
+    var col = e.range.getColumn();
+    var row = e.range.getRow();
+    
+    // Chỉ phản ứng khi sửa các cột ảnh hưởng đến L: D(4), E(5), G(7), H(8)
+    if (row < 3) return;
+    if ([4, 5, 7, 8].indexOf(col) === -1) return;
+    
+    // Đợi 1 tick để các công thức cascade (D=F, F=D+E, J=H/G) hoàn tất
+    SpreadsheetApp.flush();
+    
+    // Quét lại L cho TẤT CẢ dòng dữ liệu (từ dòng 3 trở đi)
+    var lastRow = sheet.getLastRow();
+    for (var r = 3; r <= lastRow; r++) {
+      var cellA = sheet.getRange(r, 1).getValue();
+      if (cellA === "" || cellA === null) continue; // Bỏ qua dòng trống
+      recalcColumnL(sheet, r);
+    }
+  } catch (err) {
+    // Silent fail - không làm gián đoạn trải nghiệm người dùng
+    Logger.log("onEdit error: " + err.message);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

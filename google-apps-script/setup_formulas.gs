@@ -97,8 +97,8 @@ function setupFormulas() {
     var cellJ = sheet.getRange(r, 10); // Cột J = index 10
     cellJ.setFormula('=IF(G' + r + '=0,"",H' + r + '/G' + r + ')');
     cellJ.setNumberFormat("0.00%");
-    // Cột L: Cảnh báo - CÔNG THỨC để tự cập nhật khi J hoặc F thay đổi
-    sheet.getRange(r, 12).setFormula('=IF(ISNUMBER(J'+r+'),IF(J'+r+'>F'+r+',"TOT","CANH BAO"),"")');
+    // Cột L: Cảnh báo - GHI GIÁ TRỊ TRỰC TIẾP (onEdit trigger sẽ cập nhật khi sửa tay)
+    recalcColumnL(sheet, r);
     
     // Xóa việc set conditional formatting trong mỗi vòng lặp ở đây.
     // Việc apply Conditional Formatting sẽ được thực hiện 1 lần duy nhất cho toàn cột L ở phía dưới (Bước 4)
